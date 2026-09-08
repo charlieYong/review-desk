@@ -1,0 +1,6 @@
+{
+  "name": "review-desk",
+  "private": true,
+  "scripts": { "test": "node tests/browser.cjs" },
+  "devDependencies": { "playwright": "1.63.0" }
+}
