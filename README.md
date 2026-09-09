@@ -16,6 +16,8 @@
 
 ## 快速开始
 
+使用团队 ZIP 安装包时，解压后让 Agent 按 [INSTALL.md](INSTALL.md) 完成安装和验收；包内附带离线 Python 依赖。
+
 需要 Python 3.10 或更新版本。
 
 ```sh
