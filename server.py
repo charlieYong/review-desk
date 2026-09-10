@@ -1,5 +1,6 @@
 """统一提供 HTML 方案目录、批注入口和原始静态资源。"""
 import argparse
+import hashlib
 import json
 import html
 import re
@@ -74,6 +75,22 @@ class Handler(SimpleHTTPRequestHandler):
                     continue
             files.sort(key=lambda f: (-f['modified'], f['name']))
             self.send_content(json.dumps(files, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
+        elif path == '/_preview/document':
+            page = parse_qs(urlsplit(self.path).query).get('page', [''])[0]
+            root = Path(self.directory).resolve()
+            source = Path(self.translate_path(page)).resolve()
+            if not source.is_relative_to(root) or not source.is_file() or source.suffix.lower() not in ('.html', '.htm', '.md', '.markdown'):
+                self.send_error(404, 'Document not found')
+                return
+            try:
+                raw = source.read_bytes()
+                content = raw.decode('utf-8-sig')
+            except (OSError, UnicodeError):
+                self.send_error(400, 'Cannot read document as UTF-8')
+                return
+            if source.suffix.lower() in ('.md', '.markdown'):
+                content = render_markdown(content, source.name)
+            self.send_content(json.dumps({'revision': hashlib.sha256(raw).hexdigest(), 'html': content}, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         elif path == '/_preview/theme.css':
             self.send_content((APP / 'theme.css').read_bytes(), 'text/css; charset=utf-8')
         elif Path(path).suffix.lower() in ('.md', '.markdown') and 'raw' not in parse_qs(urlsplit(self.path).query):

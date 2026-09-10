@@ -32,5 +32,31 @@ for(let i=0;i<2;i++){
   if(i===0)await p.reload();
 }
 await p.locator('#note').fill('整体意见');await p.locator('#save').click();assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),1);
-const original=await p.request.get(base+relative+'old.html');assert.equal(await original.text(),fs.readFileSync(dir+'/old.html','utf8'));const raw=await p.request.get(base+relative+encodeURIComponent('方案.md')+'?raw=1');assert.equal(await raw.text(),fs.readFileSync(dir+'/方案.md','utf8'));assert.deepEqual(errors,[]);console.log('PASS: Markdown tables/code/tasks/images/anchors, annotations/copy/persistence, descending timestamps, filters, new file discovery, HTML preservation, raw Markdown, mobile layouts, no JS errors');
+// 同名文件更新：保留草稿、归档、解决与重新选段，汇总只包含当前轮次。
+fs.writeFileSync(dir+'/round.md','# 第一版\n\n旧引用文字。\n\n保持不变的段落。');
+await p.goto(base+'/_review?page=/round.md');await f.locator('h1').waitFor();
+async function selectParagraph(index){await f.locator('p').nth(index).evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});await p.locator('#pick').click()}
+await selectParagraph(0);await p.locator('#note').fill('请修改旧引用');await p.locator('#save').click();
+await selectParagraph(1);await p.locator('#note').fill('保留段落继续完善');await p.locator('#save').click();
+await p.locator('#note').fill('整体布局意见');await p.locator('#save').click();
+await p.locator('#note').fill('尚未保存的草稿');
+fs.writeFileSync(dir+'/round.md','# 第二版\n\n新版引用文字。\n\n保持不变的段落。');
+await p.evaluate(()=>window.dispatchEvent(new Event('focus')));await p.locator('#update').waitFor({state:'visible'});
+assert.equal(await f.locator('h1').textContent(),'第一版');await p.locator('#next').click();assert.equal(await p.locator('#note').inputValue(),'尚未保存的草稿');assert.equal(await p.locator('#round').textContent(),'第 1 轮审查');
+await p.locator('#save').click();await p.locator('#next').click();await f.getByRole('heading',{name:'第二版'}).waitFor();assert.equal(await p.locator('#count').textContent(),'0');assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),0);
+await p.locator('#history summary').click();assert.equal(await p.locator('.history-card').count(),4);
+await p.locator('.history-card').nth(3).getByRole('button',{name:'标记已解决'}).click();assert.equal(await p.locator('.history-card').nth(3).locator('.tag').textContent(),'已解决');
+await p.locator('.history-card').nth(0).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();assert.equal(await p.locator('#count').textContent(),'0');await selectParagraph(0);assert.equal(await p.locator('#note').inputValue(),'请修改旧引用');await p.locator('#save').click();
+await p.locator('.history-card').nth(1).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();
+await p.locator('.history-card').nth(2).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();
+await p.locator('#export').click();const summary=await p.locator('#output').inputValue();assert(summary.includes('第 2 轮'));assert(summary.includes('内容版本：'));assert(summary.includes('新版引用文字。'));assert(!summary.includes('旧引用文字。'));assert(!summary.includes('尚未保存的草稿'));await p.locator('#close').click();
+await p.reload();await f.locator('h1').waitFor();assert.equal(await p.locator('#count').textContent(),'3');assert.equal(await p.locator('#historyCount').textContent(),'4');assert.equal(await p.locator('#round').textContent(),'第 2 轮审查');
+// 修改时间变化而内容不变，不开启新轮次；刷新发现第三版时不恢复旧高亮。
+fs.utimesSync(dir+'/round.md',new Date(),new Date());await p.evaluate(()=>checkDocument());assert(await p.locator('#update').isHidden());
+fs.writeFileSync(dir+'/round.md','# 第三版\n\n第三版引用文字。');await p.reload();await f.getByRole('heading',{name:'第三版'}).waitFor();assert(await p.locator('#update').isVisible());assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),0);assert.equal(await p.locator('#count').textContent(),'3');
+await p.setViewportSize({width:390,height:844});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+// 旧版数组格式批注可迁移，刷新后仍保留。
+await p.evaluate(()=>localStorage.setItem('review-desk:v1:'+location.origin+'/old.html',JSON.stringify([{id:'legacy',quote:'',note:'旧版批注'}])));
+await p.goto(base+'/_review?page=/old.html');await f.locator('h1').waitFor();assert.equal(await p.locator('#count').textContent(),'1');await p.reload();await f.locator('h1').waitFor();assert.equal(await p.locator('#count').textContent(),'1');
+const original=await p.request.get(base+relative+'old.html');assert.equal(await original.text(),fs.readFileSync(dir+'/old.html','utf8'));const raw=await p.request.get(base+relative+encodeURIComponent('方案.md')+'?raw=1');assert.equal(await raw.text(),fs.readFileSync(dir+'/方案.md','utf8'));assert.deepEqual(errors,[]);console.log('PASS: review rounds/archive/follow-up/draft preservation/version detection/legacy migration, Markdown tables/code/tasks/images/anchors, annotations/copy/persistence, descending timestamps, filters, new file discovery, HTML preservation, raw Markdown, mobile layouts, no JS errors');
 }finally{if(browser)await browser.close();if(server&&server.exitCode===null){await new Promise(resolve=>{server.once('exit',resolve);server.kill()})}fs.rmSync(dir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});
