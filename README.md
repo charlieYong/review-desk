@@ -8,9 +8,9 @@
 
 约 8 秒看完经典用法：打开方案列表 → 进入审查页 → 划词批注 → 汇总并复制到对话工具。
 
-![Review Desk 经典用法演示](docs/assets/intro-demo.mp4)
+![Review Desk 经典用法演示](docs/assets/intro-demo.gif)
 
-若无法内嵌播放，可直接打开 [intro-demo.mp4](docs/assets/intro-demo.mp4)。
+高清版：[intro-demo.mp4](docs/assets/intro-demo.mp4)
 
 ## 功能
 
