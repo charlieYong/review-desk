@@ -4,6 +4,14 @@
 
 无需修改方案文件，也不需要前端构建。将文件放入内容目录，浏览器即可开始审查。
 
+## 介绍视频
+
+经典用法：打开方案列表 → 进入审查页 → 划词批注 → 汇总并复制到对话工具。
+
+![Review Desk 经典用法演示](docs/assets/intro-demo.mp4)
+
+若无法内嵌播放，可直接打开 [intro-demo.mp4](docs/assets/intro-demo.mp4)。
+
 ## 功能
 
 - 自动发现 HTML、Markdown 和子目录中的方案，按文件修改时间倒序展示。
