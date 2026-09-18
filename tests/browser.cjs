@@ -73,7 +73,8 @@ assert.equal((await(await p.request.get(base+'/_preview/locate?path='+encodeURIC
 assert.equal((await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(outside+'/notes.txt'))).status(),404);
 assert.equal((await p.request.get(base+'/_preview/locate?path=/no/such/file.md')).status(),404);
 await p.setViewportSize({width:1440,height:1000});
-await p.goto(base+'/');await p.locator('#localPath').fill(outsideMd);await p.getByRole('button',{name:'打开批注'}).click();
+await p.goto(base+'/');assert.match(await p.locator('#search').getAttribute('placeholder'),/绝对路径/);
+await p.locator('#search').fill(outsideMd);await p.getByRole('button',{name:'打开批注'}).click();
 await f.locator('h1').waitFor();assert.equal(await f.locator('h1').textContent(),'站外方案');
 assert(await f.locator('img').evaluate(el=>el.complete&&el.naturalWidth===80));
 assert.equal(await p.locator('#source').textContent(),outsideMd);
