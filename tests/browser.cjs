@@ -2,7 +2,7 @@ const {chromium}=require('playwright');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
 const os=require('node:os');
-let base,server;
+let base,server,outside;
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'review-desk-'));
 const relative='/';
 (async()=>{let browser;try{
@@ -58,5 +58,34 @@ await p.setViewportSize({width:390,height:844});assert(await p.evaluate(()=>docu
 // 旧版数组格式批注可迁移，刷新后仍保留。
 await p.evaluate(()=>localStorage.setItem('review-desk:v1:'+location.origin+'/old.html',JSON.stringify([{id:'legacy',quote:'',note:'旧版批注'}])));
 await p.goto(base+'/_review?page=/old.html');await f.locator('h1').waitFor();assert.equal(await p.locator('#count').textContent(),'1');await p.reload();await f.locator('h1').waitFor();assert.equal(await p.locator('#count').textContent(),'1');
-const original=await p.request.get(base+relative+'old.html');assert.equal(await original.text(),fs.readFileSync(dir+'/old.html','utf8'));const raw=await p.request.get(base+relative+encodeURIComponent('方案.md')+'?raw=1');assert.equal(await raw.text(),fs.readFileSync(dir+'/方案.md','utf8'));assert.deepEqual(errors,[]);console.log('PASS: review rounds/archive/follow-up/draft preservation/version detection/legacy migration, Markdown tables/code/tasks/images/anchors, annotations/copy/persistence, descending timestamps, filters, new file discovery, HTML preservation, raw Markdown, mobile layouts, no JS errors');
-}finally{if(browser)await browser.close();if(server&&server.exitCode===null){await new Promise(resolve=>{server.once('exit',resolve);server.kill()})}fs.rmSync(dir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});
+const original=await p.request.get(base+relative+'old.html');assert.equal(await original.text(),fs.readFileSync(dir+'/old.html','utf8'));const raw=await p.request.get(base+relative+encodeURIComponent('方案.md')+'?raw=1');assert.equal(await raw.text(),fs.readFileSync(dir+'/方案.md','utf8'));
+// 按本机绝对路径打开内容目录以外的方案，并保持目录内文件仍用原地址。
+outside=fs.mkdtempSync(path.join(os.tmpdir(),'review-desk-outside-'));
+const outsideMd=fs.realpathSync(outside)+'/outside.md';
+fs.writeFileSync(outside+'/pic.svg','<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><rect width="80" height="20" fill="blue"/></svg>');
+fs.writeFileSync(outsideMd,'# 站外方案\n\n站外原文用于批注。\n\n![示例](pic.svg)\n');
+fs.writeFileSync(outside+'/other.html','<!doctype html><title>站外 HTML</title><h1>另一份站外</h1><p>第二份正文。</p>');
+fs.writeFileSync(outside+'/notes.txt','not a document');
+const located=await(await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(outsideMd))).json();
+assert.equal(located.page,'/_fs'+outsideMd);
+assert.equal((await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(path.join(fs.realpathSync(dir),'old.html')))).status(),200);
+assert.equal((await(await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(path.join(fs.realpathSync(dir),'old.html')))).json()).page,'/old.html');
+assert.equal((await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(outside+'/notes.txt'))).status(),404);
+assert.equal((await p.request.get(base+'/_preview/locate?path=/no/such/file.md')).status(),404);
+await p.setViewportSize({width:1440,height:1000});
+await p.goto(base+'/');await p.locator('#localPath').fill(outsideMd);await p.getByRole('button',{name:'打开批注'}).click();
+await f.locator('h1').waitFor();assert.equal(await f.locator('h1').textContent(),'站外方案');
+assert(await f.locator('img').evaluate(el=>el.complete&&el.naturalWidth===80));
+assert.equal(await p.locator('#source').textContent(),outsideMd);
+await f.locator('p').first().evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});
+await p.locator('#pick').click();await p.locator('#note').fill('站外方案可批注');await p.locator('#save').click();
+assert.equal(await p.locator('#count').textContent(),'1');
+await p.getByText('打开其他预览页').click();await p.locator('#url').fill(outside+'/other.html');await p.locator('#open').click();
+await f.getByRole('heading',{name:'另一份站外'}).waitFor();assert.equal(await p.locator('#count').textContent(),'0');
+await p.locator('#url').fill('/no/such/file.md');await p.locator('#open').click();
+await p.waitForFunction(()=>/找不到该方案|请确认/.test(document.querySelector('#status').textContent));
+await p.locator('#url').fill('old.html');await p.locator('#open').click();
+await f.getByRole('heading',{name:'旧 HTML'}).waitFor();assert.equal(await p.locator('#count').textContent(),'1');
+await p.goto(base+'/');await p.setViewportSize({width:390,height:844});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+assert.deepEqual(errors,[]);console.log('PASS: review rounds/archive/follow-up/draft preservation/version detection/legacy migration, Markdown tables/code/tasks/images/anchors, annotations/copy/persistence, descending timestamps, filters, new file discovery, local absolute paths, HTML preservation, raw Markdown, mobile layouts, no JS errors');
+}finally{if(browser)await browser.close();if(server&&server.exitCode===null){await new Promise(resolve=>{server.once('exit',resolve);server.kill()})}if(outside)fs.rmSync(outside,{recursive:true,force:true});fs.rmSync(dir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});

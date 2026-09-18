@@ -9,9 +9,40 @@ from markdown_it.token import Token
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, urlsplit, parse_qs
+from urllib.parse import quote, unquote, urlsplit, parse_qs
+from urllib.request import url2pathname
 
 APP = Path(__file__).resolve().parent
+DOC_SUFFIXES = {'.html', '.htm', '.md', '.markdown'}
+FS_PREFIX = '/_fs'
+
+
+def is_doc_file(source):
+    try:
+        return source.is_file() and source.suffix.lower() in DOC_SUFFIXES
+    except OSError:
+        return False
+
+
+def filesystem_page(source):
+    posix = source.as_posix()
+    if re.match(r'^[A-Za-z]:/', posix):
+        return '/_fs/' + quote(posix, safe=':/')
+    return '/_fs' + quote(posix, safe='/')
+
+
+def path_from_fs_url(url_path):
+    if url_path != FS_PREFIX and not url_path.startswith(FS_PREFIX + '/'):
+        return None
+    rest = unquote(url_path[len(FS_PREFIX):])
+    if re.match(r'^/[A-Za-z]:/', rest):
+        rest = rest[1:]
+    if not rest or rest == '/':
+        return None
+    try:
+        return Path(rest).expanduser().resolve()
+    except (OSError, ValueError):
+        return None
 
 
 def render_markdown(content, name):
@@ -58,13 +89,87 @@ class Handler(SimpleHTTPRequestHandler):
         if self.command != 'HEAD':
             self.wfile.write(body)
 
+    def send_local_file(self, source):
+        if source.suffix.lower() in ('.md', '.markdown') and 'raw' not in parse_qs(urlsplit(self.path).query):
+            try:
+                content = source.read_text(encoding='utf-8-sig')
+            except (OSError, UnicodeError):
+                self.send_error(400, 'Cannot read Markdown as UTF-8')
+                return
+            self.send_content(render_markdown(content, source.name).encode(), 'text/html; charset=utf-8')
+            return
+        try:
+            data = source.read_bytes()
+        except OSError:
+            self.send_error(404, 'File not found')
+            return
+        self.send_content(data, self.guess_type(str(source)))
+
+    def content_page(self, source, root):
+        return '/' + quote(source.relative_to(root).as_posix())
+
+    def locate_page(self, raw):
+        raw = (raw or '').strip()
+        if not raw:
+            return None
+        root = Path(self.directory).resolve()
+        if raw.lower().startswith('file:'):
+            raw = url2pathname(unquote(urlsplit(raw).path))
+        url_path = raw.replace('\\', '/')
+        if url_path.startswith(FS_PREFIX + '/') or url_path == FS_PREFIX:
+            source = path_from_fs_url(url_path)
+            if source is not None and is_doc_file(source):
+                if source.is_relative_to(root):
+                    return self.content_page(source, root)
+                return filesystem_page(source)
+            return None
+        try:
+            candidate = Path(raw).expanduser()
+        except (OSError, ValueError):
+            candidate = None
+        if candidate is not None:
+            try:
+                if candidate.is_absolute():
+                    resolved = candidate.resolve()
+                    if is_doc_file(resolved):
+                        if resolved.is_relative_to(root):
+                            return self.content_page(resolved, root)
+                        return filesystem_page(resolved)
+            except (OSError, ValueError):
+                pass
+        if not url_path.startswith('/'):
+            url_path = '/' + url_path
+        try:
+            source = Path(self.translate_path(url_path)).resolve()
+            if source.is_relative_to(root) and is_doc_file(source):
+                return self.content_page(source, root)
+        except (OSError, ValueError):
+            pass
+        return None
+
+    def resolve_document(self, page):
+        root = Path(self.directory).resolve()
+        url_path = urlsplit(page).path or page
+        try:
+            if url_path.startswith(FS_PREFIX + '/') or url_path == FS_PREFIX:
+                source = path_from_fs_url(url_path)
+                if source is not None and is_doc_file(source):
+                    return source
+                return None
+            source = Path(self.translate_path(url_path)).resolve()
+            if source.is_relative_to(root) and is_doc_file(source):
+                return source
+        except (OSError, ValueError):
+            return None
+        return None
+
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == '/_preview/files':
             root = Path(self.directory).resolve()
             files = []
             for p in root.rglob('*'):
-                if p.suffix.lower() not in ('.html', '.htm', '.md', '.markdown'):
+                if p.suffix.lower() not in DOC_SUFFIXES:
                     continue
                 try:
                     if not p.is_file() or not p.resolve().is_relative_to(root):
@@ -77,9 +182,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_content(json.dumps(files, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         elif path == '/_preview/document':
             page = parse_qs(urlsplit(self.path).query).get('page', [''])[0]
-            root = Path(self.directory).resolve()
-            source = Path(self.translate_path(page)).resolve()
-            if not source.is_relative_to(root) or not source.is_file() or source.suffix.lower() not in ('.html', '.htm', '.md', '.markdown'):
+            source = self.resolve_document(page)
+            if source is None:
                 self.send_error(404, 'Document not found')
                 return
             try:
@@ -91,8 +195,24 @@ class Handler(SimpleHTTPRequestHandler):
             if source.suffix.lower() in ('.md', '.markdown'):
                 content = render_markdown(content, source.name)
             self.send_content(json.dumps({'revision': hashlib.sha256(raw).hexdigest(), 'html': content}, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
+        elif path == '/_preview/locate':
+            page = self.locate_page(parse_qs(urlsplit(self.path).query).get('path', [''])[0])
+            if page is None:
+                self.send_error(404, 'Document not found')
+                return
+            self.send_content(json.dumps({'page': page}, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         elif path == '/_preview/theme.css':
             self.send_content((APP / 'theme.css').read_bytes(), 'text/css; charset=utf-8')
+        elif path == FS_PREFIX or path.startswith(FS_PREFIX + '/'):
+            source = path_from_fs_url(path)
+            try:
+                exists = source is not None and source.is_file()
+            except OSError:
+                exists = False
+            if not exists:
+                self.send_error(404, 'File not found')
+                return
+            self.send_local_file(source)
         elif Path(path).suffix.lower() in ('.md', '.markdown') and 'raw' not in parse_qs(urlsplit(self.path).query):
             root = Path(self.directory).resolve()
             source = Path(self.translate_path(self.path)).resolve()
