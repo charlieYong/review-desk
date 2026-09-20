@@ -16,7 +16,7 @@
 
 - 自动发现 HTML、Markdown 和子目录中的方案，按文件修改时间倒序展示。
 - 按文件名搜索、按 HTML / Markdown 类型筛选，每 15 秒刷新列表。
-- Markdown 使用接近 GitHub README 的排版，支持表格、代码块、任务列表、图片和章节锚点。
+- Markdown 使用接近 GitHub README 的排版，支持表格、代码块、Mermaid 图（如 flowchart）、任务列表、图片和章节锚点。
 - 划词批注、整体意见、多条编辑与删除。
 - 按方案地址和审查轮次在浏览器保存批注，刷新后恢复。
 - 检测文档内容更新，手动开始新一轮并归档旧批注；历史意见可标记已解决或继续跟进。
@@ -86,7 +86,7 @@ mkdir -p ~/preview-docs
 
 这是面向个人或可信局域网的文件预览工具，没有账号系统。内容目录中的文件会被提供给访问者，HTML 按原样运行；请只放入准备预览的可信文件，不要把整个代码仓库或含凭证的目录作为内容目录。按本机绝对路径打开方案后，该文件及其相对资源也会对能访问此服务的人可见；不要打开含凭证或不打算分享的文件。
 
-批注依赖浏览器 localStorage；更换浏览器、域名或端口后不会自动迁移。图片和 Canvas 内的文字、跨域 iframe 不支持划词。Markdown 内嵌 HTML 按文本展示；代码块保留格式，不提供语法高亮。复制结果受浏览器权限影响，失败时可手动复制。
+批注依赖浏览器 localStorage；更换浏览器、域名或端口后不会自动迁移。图片和 Canvas 内的文字、跨域 iframe 不支持划词。Markdown 内嵌 HTML 按文本展示；代码块保留格式，不提供语法高亮。语言标记为 mermaid 的代码块会缩放到笔记本一屏内完整可见；语法错误时保留源文；图内节点文字能否划词取决于浏览器对 SVG 的选择。复制结果受浏览器权限影响，失败时可手动复制。
 
 ## 项目结构
 
@@ -96,10 +96,11 @@ mkdir -p ~/preview-docs
 | `index.html` | 方案目录、搜索和类型筛选 |
 | `review.html` | 划词批注与汇总复制 |
 | `theme.css` | 工作台与 Markdown 正文样式 |
+| `vendor/mermaid.min.js` | 本地 Mermaid 运行时，用于渲染流程图等图 |
 | `examples/` | 不含业务数据的体验示例 |
 | `tests/browser.cjs` | 使用独立临时目录的浏览器验收 |
 
-运行时仅依赖 [markdown-it-py](https://markdown-it-py.readthedocs.io/en/latest/using.html)，不依赖外部 CDN。
+运行时依赖 [markdown-it-py](https://markdown-it-py.readthedocs.io/en/latest/using.html) 和仓库内的 Mermaid 脚本，不依赖外部 CDN。
 
 ## 浏览器验证
 
@@ -111,4 +112,4 @@ npx playwright install chromium
 PYTHON=.venv/bin/python npm test
 ```
 
-测试覆盖 Markdown 渲染、相对图片、划词批注、复制结果提示、刷新恢复、排序、筛选、新文件发现、按本机绝对路径打开站外方案、原始 HTML 和手机布局。`PYTHON` 可指定 Python 可执行文件；`CHROMIUM_EXECUTABLE_PATH` 可指定已有 Chromium。
+测试覆盖 Markdown 渲染、Mermaid 流程图、相对图片、划词批注、复制结果提示、刷新恢复、排序、筛选、新文件发现、按本机绝对路径打开站外方案、原始 HTML 和手机布局。`PYTHON` 可指定 Python 可执行文件；`CHROMIUM_EXECUTABLE_PATH` 可指定已有 Chromium。

@@ -24,4 +24,10 @@
 print("让每个想法，再清晰一点。")
 ```
 
+```mermaid
+flowchart LR
+    A[阅读方案] --> B[留下批注]
+    B --> C[汇总回对话]
+```
+
 也可以打开 [HTML 示例](welcome.html)，体验不同格式之间的切换。

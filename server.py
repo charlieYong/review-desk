@@ -15,6 +15,29 @@ from urllib.request import url2pathname
 APP = Path(__file__).resolve().parent
 DOC_SUFFIXES = {'.html', '.htm', '.md', '.markdown'}
 FS_PREFIX = '/_fs'
+MERMAID_VERSION = '11.16.1'
+MERMAID_JS = APP / 'vendor' / 'mermaid.min.js'
+MERMAID_BOOT = (
+    f'<script src="/_preview/mermaid.min.js?v={MERMAID_VERSION}"></script>'
+    '<script>(function(){'
+    'function fit(){'
+    'var cap=Math.min(window.innerHeight*0.88,800);'
+    'document.querySelectorAll("pre.mermaid svg").forEach(function(svg){'
+    'var box=svg.closest("pre.mermaid");if(!box)return;'
+    'var vb=svg.viewBox&&svg.viewBox.baseVal,w,h;'
+    'try{w=vb&&vb.width||svg.getBBox().width;h=vb&&vb.height||svg.getBBox().height}catch(e){return}'
+    'if(!w||!h)return;'
+    'var s=Math.min((Math.max(120,box.clientWidth-8))/w,cap/h,1);'
+    'svg.style.width=(w*s)+"px";svg.style.height=(h*s)+"px";'
+    'svg.removeAttribute("width");svg.removeAttribute("height");'
+    '});}'
+    'mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"neutral",'
+    'fontFamily:"-apple-system,BlinkMacSystemFont,sans-serif",fontSize:14,'
+    'flowchart:{useMaxWidth:false,htmlLabels:true,padding:4,nodeSpacing:16,rankSpacing:16,wrappingWidth:200}});'
+    'Promise.resolve(mermaid.run()).then(fit).catch(function(){});'
+    'window.addEventListener("resize",fit);'
+    '})();</script>'
+)
 
 
 def is_doc_file(source):
@@ -45,12 +68,29 @@ def path_from_fs_url(url_path):
         return None
 
 
+def fence_language(info):
+    info = (info or '').strip()
+    return info.split(None, 1)[0].lower() if info else ''
+
+
 def render_markdown(content, name):
     """以 README 风格渲染正文，保留原 URL 以支持相对图片和链接。"""
     md = MarkdownIt('js-default')
+    original_fence = md.renderer.rules['fence']
+
+    def render_fence(tokens, idx, options, env):
+        token = tokens[idx]
+        if fence_language(token.info) == 'mermaid':
+            return '<pre class="mermaid">' + html.escape(token.content) + '</pre>\n'
+        return original_fence(tokens, idx, options, env)
+
+    md.renderer.rules['fence'] = render_fence
     tokens = md.parse(content)
     used_ids = set()
+    has_mermaid = False
     for i, token in enumerate(tokens):
+        if token.type == 'fence' and fence_language(token.info) == 'mermaid':
+            has_mermaid = True
         if token.type == 'heading_open':
             heading = tokens[i + 1].content
             slug = re.sub(r'[^\w\- ]', '', heading.lower()).replace(' ', '-') or 'section'
@@ -70,21 +110,23 @@ def render_markdown(content, name):
                 checkbox.content = '<input type="checkbox" disabled' + (' checked' if checked else '') + '> '
                 children.insert(0, checkbox)
     body = md.renderer.render(tokens, md.options, {})
+    mermaid = MERMAID_BOOT if has_mermaid and MERMAID_JS.is_file() else ''
     return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>' + html.escape(name) + '</title>'
             '<link rel="stylesheet" href="/_preview/theme.css">'
             '<body class="markdown-page"><main class="readme"><div class="readme-bar">'
             '<span>▤ &nbsp; ' + html.escape(name) + '</span><span>Markdown</span></div>'
-            '<article class="markdown-body">' + body + '</article></main></body></html>')
+            '<article class="markdown-body">' + body + '</article></main>'
+            + mermaid + '</body></html>')
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def send_content(self, body, content_type):
+    def send_content(self, body, content_type, cache='no-store'):
         self.send_response(200)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cache-Control', cache)
         self.end_headers()
         if self.command != 'HEAD':
             self.wfile.write(body)
@@ -203,6 +245,11 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_content(json.dumps({'page': page}, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         elif path == '/_preview/theme.css':
             self.send_content((APP / 'theme.css').read_bytes(), 'text/css; charset=utf-8')
+        elif path == '/_preview/mermaid.min.js':
+            if not MERMAID_JS.is_file():
+                self.send_error(404, 'Mermaid runtime not found')
+                return
+            self.send_content(MERMAID_JS.read_bytes(), 'text/javascript; charset=utf-8', cache='public, max-age=31536000, immutable')
         elif path == FS_PREFIX or path.startswith(FS_PREFIX + '/'):
             source = path_from_fs_url(path)
             try:
