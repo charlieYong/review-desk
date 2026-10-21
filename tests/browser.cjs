@@ -6,7 +6,7 @@ let base,server,outside;
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'review-desk-'));
 const relative='/';
 (async()=>{let browser;try{
-server=spawn(process.env.PYTHON||'python3',[path.join(__dirname,'..','server.py'),'--directory',dir,'--bind','127.0.0.1','--port','0'],{stdio:['ignore','pipe','pipe']});
+server=spawn(process.env.PYTHON||'python3',[path.join(__dirname,'..','server.py'),'--directory',dir,'--bind','127.0.0.1','--port','0','--state-directory',dir+'-state'],{stdio:['ignore','pipe','pipe']});
 base=await new Promise((resolve,reject)=>{let output='',errors='';const timer=setTimeout(()=>reject(Error('服务启动超时: '+errors)),15000);server.stderr.on('data',b=>errors+=b);server.on('error',e=>{clearTimeout(timer);reject(e)});server.once('exit',code=>{clearTimeout(timer);reject(Error('服务退出 '+code+': '+errors))});server.stdout.on('data',b=>{output+=b;const match=output.match(/Review Desk: (http:\/\/[^\s]+)/);if(match){clearTimeout(timer);resolve(match[1])}})});
 
 fs.writeFileSync(dir+'/old.html','<!doctype html><h1>旧 HTML</h1><p>旧方案仍然可以批注。</p>');fs.utimesSync(dir+'/old.html',1,1);
@@ -15,10 +15,10 @@ fs.writeFileSync(dir+'/方案.md','# Markdown 验收\n\n这段原文用于批注
 browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH});const p=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];p.on('pageerror',e=>errors.push(e.message));
 await p.goto(base+'/');await p.locator('.file-row').first().waitFor();let api=await(await p.request.get(base+'/_preview/files')).json();assert(api.every((f,i)=>i===0||api[i-1].modified>=f.modified));assert(api.find(f=>f.name==='方案.md').kind==='Markdown');assert((await p.locator('.file-info a').first().textContent())==='方案.md');
 await p.getByRole('button',{name:'Markdown',exact:true}).click();assert(await p.locator('.file-icon').evaluateAll(es=>es.every(e=>e.textContent==='MD')));await p.getByRole('link',{name:'方案.md',exact:true}).click();const f=p.frameLocator('#page');await f.locator('h1').waitFor();assert.equal(await f.locator('table tbody tr').count(),1);assert.equal(await f.locator('input:checked').count(),1);assert.equal(await f.locator('pre code').textContent(),'const value = 42;\n');await f.locator('.mermaid svg').waitFor({timeout:20000});assert.match(await f.locator('.mermaid').innerText(),/开始/);assert.equal(await f.locator('pre code.language-mermaid').count(),0);assert((await f.locator('.mermaid .nodeLabel, .mermaid text').first().evaluate(el=>el.getBoundingClientRect().height))>=12);assert.equal(await f.locator('s').textContent(),'删除文字');assert(await f.locator('img').evaluate(el=>el.complete&&el.naturalWidth===80));assert.equal(await f.locator('body').evaluate(()=>window.injected),undefined);assert.equal(await f.locator('h2').getAttribute('id'),'能力清单');
-await f.locator('p').first().evaluate(el=>{let r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});await p.locator('#pick').click();await p.locator('#note').fill('请补充验收证据。');await p.locator('#save').click();assert.deepEqual(await f.locator('body').evaluate(()=>Array.from(CSS.highlights.get('review-desk-notes'),r=>r.toString())),['这段原文用于批注。']);await p.locator('#export').click();await p.waitForFunction(()=>document.querySelector('#copyStatus').textContent.length>0);assert((await p.locator('#output').inputValue()).includes('这段原文用于批注。'));await p.locator('#close').click();await p.reload();await p.locator('.card').waitFor();assert.equal(await p.locator('#count').textContent(),'1');
+await f.locator('p').first().evaluate(el=>{let r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});await p.locator('#pick').click();await p.locator('#note').fill('请补充验收证据。');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);assert.deepEqual(await f.locator('body').evaluate(()=>Array.from(CSS.highlights.get('review-desk-notes'),r=>r.toString())),['这段原文用于批注。']);await p.locator('#export').click();await p.waitForFunction(()=>document.querySelector('#copyStatus').textContent.length>0);assert((await p.locator('#output').inputValue()).includes('这段原文用于批注。'));await p.locator('#close').click();await p.reload();await p.locator('.card').waitFor();assert.equal(await p.locator('#count').textContent(),'1');
 await f.locator('h1').waitFor();assert.deepEqual(await f.locator('body').evaluate(()=>Array.from(CSS.highlights.get('review-desk-notes'),r=>r.toString())),['这段原文用于批注。']);
-await p.locator('.card').getByRole('button',{name:'编辑'}).click();await p.locator('#note').fill('修改后的意见');await p.locator('#save').click();assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),1);
-await p.locator('.card').getByRole('button',{name:'删除'}).click();assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),0);
+await p.locator('.card').getByRole('button',{name:'编辑'}).click();await p.locator('#note').fill('修改后的意见');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),1);
+await p.locator('.card').getByRole('button',{name:'删除'}).click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),0);
 await p.setViewportSize({width:390,height:844});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
 await p.goto(base+'/');await p.locator('.file-row').first().waitFor();assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.setViewportSize({width:1440,height:1000});
 fs.writeFileSync(dir+'/new.markdown','# 新文件\n\n自动收录');await p.getByRole('button',{name:/刷新列表/}).click();await p.getByRole('link',{name:'new.markdown',exact:true}).waitFor();assert.equal(await p.locator('.file-info a').first().textContent(),'new.markdown');
@@ -26,29 +26,29 @@ fs.writeFileSync(dir+'/new.markdown','# 新文件\n\n自动收录');await p.getB
 fs.writeFileSync(dir+'/repeat.html','<!doctype html><title>重复文字</title><p>相同文字</p><p>前缀 <strong>相同</strong>文字 后缀</p>');
 await p.goto(base+'/_review?page=/repeat.html');await f.locator('strong').waitFor();
 await f.locator('p').nth(1).evaluate(el=>{const r=document.createRange();r.setStart(el.querySelector('strong').firstChild,0);r.setEnd(el.lastChild,2);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});
-await p.locator('#pick').click();await p.locator('#note').fill('第二处文字');await p.locator('#save').click();
+await p.locator('#pick').click();await p.locator('#note').fill('第二处文字');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
 for(let i=0;i<2;i++){
   await f.locator('strong').waitFor();assert.deepEqual(await f.locator('body').evaluate(()=>Array.from(CSS.highlights.get('review-desk-notes'),r=>({text:r.toString(),parent:r.startContainer.parentElement.tagName}))),[{text:'相同文字',parent:'STRONG'}]);
   if(i===0)await p.reload();
 }
-await p.locator('#note').fill('整体意见');await p.locator('#save').click();assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),1);
+await p.locator('#note').fill('整体意见');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),1);
 // 同名文件更新：保留草稿、归档、解决与重新选段，汇总只包含当前轮次。
 fs.writeFileSync(dir+'/round.md','# 第一版\n\n旧引用文字。\n\n保持不变的段落。');
 await p.goto(base+'/_review?page=/round.md');await f.locator('h1').waitFor();
 async function selectParagraph(index){await f.locator('p').nth(index).evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});await p.locator('#pick').click()}
-await selectParagraph(0);await p.locator('#note').fill('请修改旧引用');await p.locator('#save').click();
-await selectParagraph(1);await p.locator('#note').fill('保留段落继续完善');await p.locator('#save').click();
-await p.locator('#note').fill('整体布局意见');await p.locator('#save').click();
+await selectParagraph(0);await p.locator('#note').fill('请修改旧引用');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
+await selectParagraph(1);await p.locator('#note').fill('保留段落继续完善');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
+await p.locator('#note').fill('整体布局意见');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
 await p.locator('#note').fill('尚未保存的草稿');
 fs.writeFileSync(dir+'/round.md','# 第二版\n\n新版引用文字。\n\n保持不变的段落。');
 await p.evaluate(()=>window.dispatchEvent(new Event('focus')));await p.locator('#update').waitFor({state:'visible'});
 assert.equal(await f.locator('h1').textContent(),'第一版');await p.locator('#next').click();assert.equal(await p.locator('#note').inputValue(),'尚未保存的草稿');assert.equal(await p.locator('#round').textContent(),'第 1 轮审查');
-await p.locator('#save').click();await p.locator('#next').click();await f.getByRole('heading',{name:'第二版'}).waitFor();assert.equal(await p.locator('#count').textContent(),'0');assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),0);
+await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);await p.locator('#next').click();await f.getByRole('heading',{name:'第二版'}).waitFor();assert.equal(await p.locator('#count').textContent(),'0');assert.equal(await f.locator('body').evaluate(()=>CSS.highlights.get('review-desk-notes').size),0);
 await p.locator('#history summary').click();assert.equal(await p.locator('.history-card').count(),4);
-await p.locator('.history-card').nth(3).getByRole('button',{name:'标记已解决'}).click();assert.equal(await p.locator('.history-card').nth(3).locator('.tag').textContent(),'已解决');
-await p.locator('.history-card').nth(0).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();assert.equal(await p.locator('#count').textContent(),'0');await selectParagraph(0);assert.equal(await p.locator('#note').inputValue(),'请修改旧引用');await p.locator('#save').click();
-await p.locator('.history-card').nth(1).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();
-await p.locator('.history-card').nth(2).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();
+await p.locator('.history-card').nth(3).getByRole('button',{name:'标记已解决'}).click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);assert.equal(await p.locator('.history-card').nth(3).locator('.tag').textContent(),'已解决');
+await p.locator('.history-card').nth(0).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);assert.equal(await p.locator('#count').textContent(),'0');await selectParagraph(0);assert.equal(await p.locator('#note').inputValue(),'请修改旧引用');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
+await p.locator('.history-card').nth(1).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
+await p.locator('.history-card').nth(2).getByRole('button',{name:'继续跟进'}).click();await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
 await p.locator('#export').click();const summary=await p.locator('#output').inputValue();assert(summary.includes('第 2 轮'));assert(summary.includes('内容版本：'));assert(summary.includes('新版引用文字。'));assert(!summary.includes('旧引用文字。'));assert(!summary.includes('尚未保存的草稿'));await p.locator('#close').click();
 await p.reload();await f.locator('h1').waitFor();assert.equal(await p.locator('#count').textContent(),'3');assert.equal(await p.locator('#historyCount').textContent(),'4');assert.equal(await p.locator('#round').textContent(),'第 2 轮审查');
 // 修改时间变化而内容不变，不开启新轮次；刷新发现第三版时不恢复旧高亮。
@@ -79,7 +79,7 @@ await f.locator('h1').waitFor();assert.equal(await f.locator('h1').textContent()
 assert(await f.locator('img').evaluate(el=>el.complete&&el.naturalWidth===80));
 assert.equal(await p.locator('#source').textContent(),outsideMd);
 await f.locator('p').first().evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});
-await p.locator('#pick').click();await p.locator('#note').fill('站外方案可批注');await p.locator('#save').click();
+await p.locator('#pick').click();await p.locator('#note').fill('站外方案可批注');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
 assert.equal(await p.locator('#count').textContent(),'1');
 await p.getByText('打开其他预览页').click();await p.locator('#url').fill(outside+'/other.html');await p.locator('#open').click();
 await f.getByRole('heading',{name:'另一份站外'}).waitFor();assert.equal(await p.locator('#count').textContent(),'0');
@@ -95,4 +95,4 @@ const fitted=await f.locator('pre.mermaid svg').evaluate(svg=>{const r=svg.getBo
 assert(fitted.h<=800);assert(fitted.h<=fitted.vh);assert(fitted.scroll<=20);
 await p.goto(base+'/');await p.setViewportSize({width:390,height:844});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
 assert.deepEqual(errors,[]);console.log('PASS: review rounds/archive/follow-up/draft preservation/version detection/legacy migration, Markdown tables/code/mermaid/tasks/images/anchors, annotations/copy/persistence, descending timestamps, filters, new file discovery, local absolute paths, HTML preservation, raw Markdown, mobile layouts, no JS errors');
-}finally{if(browser)await browser.close();if(server&&server.exitCode===null){await new Promise(resolve=>{server.once('exit',resolve);server.kill()})}if(outside)fs.rmSync(outside,{recursive:true,force:true});fs.rmSync(dir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});
+}finally{if(browser)await browser.close();if(server&&server.exitCode===null){await new Promise(resolve=>{server.once('exit',resolve);server.kill()})}if(outside)fs.rmSync(outside,{recursive:true,force:true});fs.rmSync(dir+'-state',{recursive:true,force:true});fs.rmSync(dir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});

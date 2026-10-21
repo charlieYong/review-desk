@@ -1,6 +1,6 @@
 {
   "name": "review-desk",
   "private": true,
-  "scripts": { "test": "node tests/browser.cjs" },
+  "scripts": { "test": "node tests/browser.cjs && node tests/shared.cjs" },
   "devDependencies": { "playwright": "1.63.0" }
 }

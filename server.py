@@ -7,6 +7,7 @@ import re
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from functools import partial
+from review_store import ReviewStore, Conflict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, parse_qs
@@ -122,8 +123,8 @@ def render_markdown(content, name):
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def send_content(self, body, content_type, cache='no-store'):
-        self.send_response(200)
+    def send_content(self, body, content_type, cache='no-store', status=200):
+        self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', cache)
@@ -205,9 +206,42 @@ class Handler(SimpleHTTPRequestHandler):
             return None
         return None
 
+    def review_request(self, action=None):
+        page = action.get('page', '') if action else parse_qs(urlsplit(self.path).query).get('page', [''])[0]
+        source = self.resolve_document(page)
+        if source is None:
+            self.send_error(404, 'Document not found')
+            return
+        try:
+            result = self.server.reviews.transact(source, action)
+            root = Path(self.directory).resolve()
+            result['page'] = self.content_page(source, root) if source.is_relative_to(root) else filesystem_page(source)
+            self.send_content(json.dumps(result, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
+        except Conflict as exc:
+            self.send_content(json.dumps({'error': str(exc)}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=409)
+        except (ValueError, KeyError, TypeError) as exc:
+            self.send_content(json.dumps({'error': '批注数据格式错误：' + str(exc)}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=400)
+        except OSError:
+            self.send_content(json.dumps({'error': '共享批注读写失败；草稿已保留'}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=500)
+
+    def do_POST(self):
+        if urlsplit(self.path).path != '/_preview/review':
+            self.send_error(404)
+            return
+        try:
+            action = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
+            if not isinstance(action, dict):
+                raise ValueError()
+        except (ValueError, TypeError):
+            self.send_error(400, 'Invalid JSON')
+            return
+        self.review_request(action)
+
     def do_GET(self):
         path = urlsplit(self.path).path
-        if path == '/_preview/files':
+        if path == '/_preview/review':
+            self.review_request()
+        elif path == '/_preview/files':
             root = Path(self.directory).resolve()
             files = []
             for p in root.rglob('*'):
@@ -287,7 +321,9 @@ if __name__ == '__main__':
     parser.add_argument('--directory', required=True)
     parser.add_argument('--bind', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8088)
+    parser.add_argument('--state-directory', default=str(APP / 'data'), help='共享批注持久化目录（默认安装目录下 data）')
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.bind, args.port), partial(Handler, directory=args.directory))
+    server.reviews = ReviewStore(args.state_directory)
     print(f'Review Desk: http://{args.bind}:{server.server_port}', flush=True)
     server.serve_forever()
