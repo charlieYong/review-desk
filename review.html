@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="/_preview/theme.css"><body class="review-page">
 <header class="review-header"><h1>方案批注 <small>Review Desk</small></h1><a href="/">所有方案</a><select id="pages" aria-label="选择方案"></select><span class="muted">划词 → 批注 → 汇总复制</span></header>
 <main class="workspace"><section class="preview"><div class="muted" id="source"></div><iframe id="page" title="待审查方案"></iframe></section><aside><div class="eyebrow">Shared review notes</div>
-<div id="round" class="tag"></div><div id="update" hidden><p id="updateText"></p><button id="next" class="primary">开始新一轮</button></div><h2>添加审查意见</h2><div class="muted">在左侧选中文字，点击「批注」。已批注文字以浅黄色标出，也可以直接写整体意见。</div><div id="quote"></div><textarea id="note" rows="4" placeholder="希望如何修改？为什么？" aria-label="批注内容"></textarea><div class="actions"><button class="primary" id="save">保存批注</button><button id="cancel">取消选段</button></div>
+<div id="catalogStatus" role="status"></div><div id="round" class="tag"></div><div id="update" hidden><p id="updateText"></p><button id="next" class="primary">开始新一轮</button></div><h2>添加审查意见</h2><div class="muted">在左侧选中文字，点击「批注」。已批注文字以浅黄色标出，也可以直接写整体意见。</div><div id="quote"></div><textarea id="note" rows="4" placeholder="希望如何修改？为什么？" aria-label="批注内容"></textarea><div class="actions"><button class="primary" id="save">保存批注</button><button id="cancel">取消选段</button></div>
 <h2>批注清单 <span id="count">0</span></h2><div id="status" role="status"></div><div id="list"></div><button class="primary" id="export">汇总并复制</button>
 <details id="history"><summary>历史批注 <span id="historyCount">0</span></summary><div id="archives"></div></details><details><summary>打开其他预览页</summary><p class="muted">项目方案保留在项目目录。粘贴本站 URL、文件名，或服务所在机器上的 HTML / Markdown 绝对路径即可审查，无需复制。</p><div class="urlrow"><input id="url" aria-label="方案地址" placeholder="方案 URL / 文件名 / 本机绝对路径"><button id="open">打开</button></div></details><small>批注共享保存在服务端；其他客户端打开、切回窗口或每 15 秒检查时更新。旧本地批注首次打开时自动导入，原数据保留。</small>
 </aside></main><button id="pick" class="primary">＋ 批注</button>
@@ -17,6 +17,7 @@ let review={round:1,revision:null,archives:[]}, latest=null, displayedRevision=n
 let ready=false, busy=false, sharedVersion=-1, editingOriginal=null, draftId=null;
 const clone=value=>JSON.parse(JSON.stringify(value));
 function applyShared(data){
+  $('catalogStatus').textContent=data.catalogWarning||'';
   if(data.version<sharedVersion)return;
   sharedVersion=data.version;review={round:data.state.round,revision:data.state.revision,archives:data.state.archives};entries=data.state.entries;
   render();
@@ -27,7 +28,9 @@ async function syncReview(){
   try{
     const response=await fetch('/_preview/review?page='+encodeURIComponent(new URL(url).pathname),{cache:'no-store'});
     if(!response.ok)throw Error();const data=await response.json();
-    if(token!==generation||busy||data.version<=sharedVersion)return;
+    if(token!==generation||busy)return;
+    $('catalogStatus').textContent=data.catalogWarning||'';
+    if(data.version<=sharedVersion)return;
     const previous=review.revision;applyShared(data);
     if(previous!==review.revision){
       if(!$('note').value.trim())await checkDocument(true,true);
@@ -166,11 +169,11 @@ function reset(){pending=null;editing=null;editingOriginal=null;draftId=null;$('
 function render(){ $('count').textContent=entries.length;$('list').replaceChildren();if(!entries.length){const p=document.createElement('p');p.className='empty';p.textContent='尚无批注，选一段文字开始。';$('list').append(p)}entries.forEach((e,i)=>{const card=document.createElement('div');card.className='card';const tag=document.createElement('div');tag.className='tag';tag.textContent=`${i+1} · ${e.section||'整体意见'}`;card.append(tag);if(e.quote){const q=document.createElement('blockquote');q.textContent=e.quote;card.append(q)}const p=document.createElement('p');p.textContent=e.note;card.append(p);const edit=document.createElement('button');edit.textContent='编辑';edit.onclick=()=>{editing=e.id;editingOriginal=clone(e);pending={quote:e.quote,section:e.section,anchor:e.anchor};$('quote').textContent=e.quote;$('note').value=e.note;$('save').textContent='保存修改';$('note').focus()};const del=document.createElement('button');del.textContent='删除';del.onclick=async()=>{if(await mutate({action:'delete',expected:clone(e)})){if(editing===e.id)reset()}};card.append(edit,document.createTextNode(' '),del);$('list').append(card)});renderHighlights();versionUI()}
 function pageLabel(u){if(u.pathname.startsWith('/_fs/')){let p=decodeURIComponent(u.pathname.slice(4));if(/^[A-Za-z]:\//.test(p.slice(1)))p=p.slice(1);return p}return decodeURIComponent(u.pathname.split('/').pop())}
 function isSiteAddress(value){const v=value.trim();if(v.startsWith('/_fs/')||v.startsWith('/_review'))return true;try{const u=new URL(v);return u.protocol==='http:'||u.protocol==='https:'}catch(e){return false}}
-async function openFromInput(value){const v=value.trim();if(!v){status('请输入本站方案地址、文件名，或本机 HTML / Markdown 绝对路径');return}if(isSiteAddress(v)){openPage(v);return}try{const response=await fetch('/_preview/locate?path='+encodeURIComponent(v),{cache:'no-store'});if(!response.ok)throw Error();openPage((await response.json()).page)}catch(e){status('找不到该方案，请确认本站地址、文件名或本机绝对路径指向 HTML / Markdown 文件')}}
+async function openFromInput(value){const v=value.trim();if(!v){status('请输入本站方案地址、文件名，或本机 HTML / Markdown 绝对路径');return}if(isSiteAddress(v)){openPage(v);return}try{const response=await fetch('/_preview/locate?path='+encodeURIComponent(v),{cache:'no-store'});if(!response.ok){if(response.status===500)throw Error((await response.json()).error);throw Error('找不到该方案，请确认本站地址、文件名或本机绝对路径指向 HTML / Markdown 文件')}openPage((await response.json()).page)}catch(e){status(e.message||'打开失败，请稍后重试')}}
 async function openPage(value){
   let u;try{u=new URL(value,location.origin+'/');if(u.pathname==='/_review')u=new URL(u.searchParams.get('page')||'',location.origin+'/');if(u.origin!==location.origin||!/\.(html?|md|markdown)$/i.test(u.pathname))throw Error()}catch(e){status('请输入本站方案地址、文件名，或本机 HTML / Markdown 绝对路径');return}
   if(busy||$('note').value.trim()){status('请先保存当前批注，或点击取消选段放弃草稿');$('pages').value=current;return}
-  u.hash='';current=u.href;const token=++generation;ready=false;sharedVersion=-1;latest=null;displayedRevision=null;title='';frameDoc=null;reset();selected=null;$('pick').style.display='none';review={round:1,revision:null,archives:[]};entries=[];render();status('正在读取共享批注…');
+  u.hash='';current=u.href;const token=++generation;ready=false;sharedVersion=-1;latest=null;displayedRevision=null;title='';frameDoc=null;$('catalogStatus').textContent='';reset();selected=null;$('pick').style.display='none';review={round:1,revision:null,archives:[]};entries=[];render();status('正在读取共享批注…');
   try{
     if(!await loadShared(token))return;
     u=new URL(current);
@@ -185,6 +188,12 @@ $('save').onclick=async()=>{if(pending?.needsSelection){status('请先在当前�
 function summary(){return ['请根据以下审查意见修改方案；如有冲突或不明确之处，请指出。','',`方案：${title||$('source').textContent}`,`来源：${current}`,`审查轮次：第 ${review.round} 轮`,`内容版本：${review.revision||'未记录'}`,'',...entries.flatMap((e,i)=>[`## ${i+1}. ${e.section||'整体意见'}`,e.quote?'引用原文：\n'+e.quote.split('\n').map(s=>'> '+s).join('\n'):'',`我的意见：${e.note}`,''])].join('\n')}
 async function copy(){const out=$('output');let ok=false;try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(out.value);ok=true}}catch(e){}if(!ok){out.focus();out.select();try{ok=document.execCommand('copy')}catch(e){}}$('copyStatus').textContent=ok?'已复制，可以粘贴到 Codex CLI。':'未能自动复制，文本已选中，请按 Ctrl+C / ⌘C。'}
 $('export').onclick=()=>{if($('note').value.trim()){status('还有未保存的意见，请先保存再汇总');return}if(!entries.length){status('请先添加一条批注');return}$('output').value=summary();$('dialog').showModal();copy()};$('copy').onclick=copy;$('close').onclick=()=>$('dialog').close();$('open').onclick=()=>openFromInput($('url').value);$('url').addEventListener('keydown',e=>{if(e.key==='Enter')openFromInput($('url').value)});$('pages').onchange=()=>openPage($('pages').value);
-async function refreshPages(start=false){try{const response=await fetch('/_preview/files',{cache:'no-store'});if(!response.ok)throw Error();const files=await response.json();$('pages').replaceChildren();for(const f of files)$('pages').add(new Option(f.name,new URL(f.url,location.origin).href));if(current){if(!Array.from($('pages').options).some(o=>o.value===current))$('pages').add(new Option(pageLabel(new URL(current)),current));$('pages').value=current}if(start){const target=new URL(location.href).searchParams.get('page')||files[0]?.url;if(target)openPage(target);else status('暂无目录内方案，可在首页填写项目文件绝对路径就地审查')}}catch(e){status('方案列表加载失败，请刷新重试')}}
+async function refreshPages(start=false){
+  let files=[],loaded=false;
+  try{const response=await fetch('/_preview/files',{cache:'no-store'});if(!response.ok)throw Error();files=(await response.json()).filter(f=>f.available!==false);loaded=true;$('pages').replaceChildren();for(const f of files)$('pages').add(new Option(f.name,new URL(f.url,location.origin).href));if(current){if(!Array.from($('pages').options).some(o=>o.value===current))$('pages').add(new Option(pageLabel(new URL(current)),current));$('pages').value=current}}
+  catch(e){status('方案列表加载失败，请刷新重试')}
+  // 列表存储故障不应阻止通过现有链接读取、保存共享批注。
+  if(start){const target=new URL(location.href).searchParams.get('page')||files[0]?.url;if(target)openPage(target);else if(loaded)status('暂无有效方案，可在首页填写项目文件绝对路径就地审查')}
+}
 window.addEventListener('focus',()=>{refreshPages();checkDocument();syncReview()});document.addEventListener('visibilitychange',()=>{if(!document.hidden){checkDocument();syncReview()}});setInterval(()=>{if(!document.hidden){refreshPages();checkDocument();syncReview()}},15000);refreshPages(true);
 </script></html>

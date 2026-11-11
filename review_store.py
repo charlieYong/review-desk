@@ -2,7 +2,9 @@
 import copy
 import hashlib
 import json
+import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -16,6 +18,60 @@ class ReviewStore:
     def __init__(self, directory):
         self.directory = Path(directory)
         self.lock = threading.Lock()
+
+    @staticmethod
+    def write_json(filename, data):
+        filename.parent.mkdir(parents=True, exist_ok=True)
+        temporary = filename.with_suffix('.tmp')
+        try:
+            with temporary.open('w', encoding='utf-8') as stream:
+                json.dump(data, stream, ensure_ascii=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(filename)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def read_catalog(self):
+        filename = self.directory / 'catalog.json'
+        if not filename.exists():
+            return set()
+        try:
+            paths = json.loads(filename.read_text(encoding='utf-8'))
+            if not isinstance(paths, list) or not all(isinstance(p, str) and Path(p).is_absolute() for p in paths):
+                raise ValueError('无效的方案目录')
+            return set(paths)
+        except (ValueError, UnicodeError) as exc:
+            raise OSError('方案目录无法读取') from exc
+
+    def register(self, source):
+        """只登记真实路径，不提前固定审查轮次及内容版本。"""
+        document_id = str(source.resolve())
+        with self.lock:
+            paths = self.read_catalog()
+            if document_id not in paths:
+                paths.add(document_id)
+                self.write_json(self.directory / 'catalog.json', sorted(paths))
+
+    def documents(self):
+        """旧共享状态持续作为回填来源；单条损坏不阻断其他方案。"""
+        with self.lock:
+            paths = self.read_catalog()
+            merged = set(paths)
+            for filename in self.directory.glob('*.json'):
+                if not re.fullmatch(r'[0-9a-f]{64}\.json', filename.name):
+                    continue
+                try:
+                    data = json.loads(filename.read_text(encoding='utf-8'))
+                    document_id = data['documentId']
+                    if not isinstance(document_id, str) or not Path(document_id).is_absolute():
+                        raise ValueError('无效的文档路径')
+                    merged.add(document_id)
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    logging.warning('跳过无法读取的旧批注记录 %s: %s', filename.name, type(exc).__name__)
+            if merged != paths:
+                self.write_json(self.directory / 'catalog.json', sorted(merged))
+            return sorted(merged)
 
     def transact(self, source, action=None):
         document_id = str(source.resolve())
@@ -39,16 +95,7 @@ class ReviewStore:
                     data['version'] += 1
                     changed = True
             if changed:
-                self.directory.mkdir(parents=True, exist_ok=True)
-                temporary = filename.with_suffix('.tmp')
-                try:
-                    with temporary.open('w', encoding='utf-8') as stream:
-                        json.dump(data, stream, ensure_ascii=False)
-                        stream.flush()
-                        os.fsync(stream.fileno())
-                    temporary.replace(filename)
-                finally:
-                    temporary.unlink(missing_ok=True)
+                self.write_json(filename, data)
             return {k: copy.deepcopy(data[k]) for k in ('documentId', 'version', 'state')}
 
     def apply(self, data, action, source):

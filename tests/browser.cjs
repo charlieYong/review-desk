@@ -68,6 +68,11 @@ fs.writeFileSync(outside+'/other.html','<!doctype html><title>站外 HTML</title
 fs.writeFileSync(outside+'/notes.txt','not a document');
 const located=await(await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(outsideMd))).json();
 assert.equal(located.page,'/_fs'+outsideMd);
+// 只生成定位链接、尚未打开审查页的外部方案也进入首页，且未创建审查状态。
+api=await(await p.request.get(base+'/_preview/files')).json();
+assert(api.some(file=>file.url===located.page&&file.available));
+const crypto=require('node:crypto');
+assert(!fs.existsSync(dir+'-state/'+crypto.createHash('sha256').update(outsideMd).digest('hex')+'.json'));
 assert.equal((await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(path.join(fs.realpathSync(dir),'old.html')))).status(),200);
 assert.equal((await(await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(path.join(fs.realpathSync(dir),'old.html')))).json()).page,'/old.html');
 assert.equal((await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(outside+'/notes.txt'))).status(),404);

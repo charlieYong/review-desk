@@ -3,7 +3,9 @@ import argparse
 import hashlib
 import json
 import html
+import os
 import re
+import stat
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from functools import partial
@@ -214,6 +216,10 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             result = self.server.reviews.transact(source, action)
+            try:
+                self.server.reviews.register(source)
+            except OSError:
+                result['catalogWarning'] = '方案列表登记未完成；批注仍可使用，请稍后重新打开重试'
             root = Path(self.directory).resolve()
             result['page'] = self.content_page(source, root) if source.is_relative_to(root) else filesystem_page(source)
             self.send_content(json.dumps(result, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
@@ -223,6 +229,47 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_content(json.dumps({'error': '批注数据格式错误：' + str(exc)}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=400)
         except OSError:
             self.send_content(json.dumps({'error': '共享批注读写失败；草稿已保留'}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=500)
+
+    def document_files(self):
+        root = Path(self.directory).resolve()
+        sources = {}
+        # 目录内文件优先保留普通入口，别名按真实路径去重。
+        for candidate in root.rglob('*'):
+            if candidate.suffix.lower() not in DOC_SUFFIXES:
+                continue
+            try:
+                source = candidate.resolve()
+                if source.is_relative_to(root) and is_doc_file(source):
+                    sources[str(source)] = source
+            except (OSError, ValueError):
+                continue
+        for document_id in self.server.reviews.documents():
+            try:
+                source = Path(document_id).resolve()
+                if source.suffix.lower() in DOC_SUFFIXES:
+                    sources[str(source)] = source
+            except (OSError, ValueError):
+                # 失效路径仍可列出，不丢弃其登记及批注。
+                source = Path(document_id)
+                if source.suffix.lower() in DOC_SUFFIXES:
+                    sources[str(source)] = source
+        files = []
+        for source in sources.values():
+            local = source.is_relative_to(root)
+            name = source.relative_to(root).as_posix() if local else source.as_posix()
+            available, modified = False, 0
+            try:
+                info = source.stat()
+                available = stat.S_ISREG(info.st_mode) and os.access(source, os.R_OK)
+                if available:
+                    modified = info.st_mtime
+            except OSError:
+                pass
+            files.append({'name': name, 'url': self.content_page(source, root) if local else filesystem_page(source),
+                          'modified': modified, 'available': available,
+                          'kind': 'Markdown' if source.suffix.lower() in ('.md', '.markdown') else 'HTML'})
+        files.sort(key=lambda f: (not f['available'], -f['modified'], f['name']))
+        return files
 
     def do_POST(self):
         if urlsplit(self.path).path != '/_preview/review':
@@ -242,19 +289,11 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/_preview/review':
             self.review_request()
         elif path == '/_preview/files':
-            root = Path(self.directory).resolve()
-            files = []
-            for p in root.rglob('*'):
-                if p.suffix.lower() not in DOC_SUFFIXES:
-                    continue
-                try:
-                    if not p.is_file() or not p.resolve().is_relative_to(root):
-                        continue
-                    name = p.relative_to(root).as_posix()
-                    files.append({'name': name, 'url': '/' + quote(name), 'modified': p.stat().st_mtime, 'kind': 'Markdown' if p.suffix.lower() in ('.md', '.markdown') else 'HTML'})
-                except OSError:
-                    continue
-            files.sort(key=lambda f: (-f['modified'], f['name']))
+            try:
+                files = self.document_files()
+            except OSError:
+                self.send_content(json.dumps({'error': '方案目录读写失败，请稍后刷新重试'}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=500)
+                return
             self.send_content(json.dumps(files, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         elif path == '/_preview/document':
             page = parse_qs(urlsplit(self.path).query).get('page', [''])[0]
@@ -275,6 +314,15 @@ class Handler(SimpleHTTPRequestHandler):
             page = self.locate_page(parse_qs(urlsplit(self.path).query).get('path', [''])[0])
             if page is None:
                 self.send_error(404, 'Document not found')
+                return
+            try:
+                source = self.resolve_document(page)
+                if source is None:
+                    self.send_error(404, 'Document not found')
+                    return
+                self.server.reviews.register(source)
+            except OSError:
+                self.send_content(json.dumps({'error': '方案列表登记失败，请稍后重试'}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=500)
                 return
             self.send_content(json.dumps({'page': page}, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         elif path == '/_preview/theme.css':
