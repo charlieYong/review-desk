@@ -12,7 +12,8 @@ from functools import partial
 from review_store import ReviewStore, Conflict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlsplit, parse_qs
+from string import Template
+from urllib.parse import quote, unquote, urlsplit, parse_qs, urlencode
 from urllib.request import url2pathname
 
 APP = Path(__file__).resolve().parent
@@ -71,12 +72,20 @@ def path_from_fs_url(url_path):
         return None
 
 
+def page_link(route, **params):
+    return html.escape(route + '?' + urlencode(params), quote=True)
+
+
+def project_directory(source):
+    return next((folder for folder in source.parents if (folder / '.git').exists()), source.parent)
+
+
 def fence_language(info):
     info = (info or '').strip()
     return info.split(None, 1)[0].lower() if info else ''
 
 
-def render_markdown(content, name):
+def render_markdown(content, name, *, directory=None):
     """以 README 风格渲染正文，保留原 URL 以支持相对图片和链接。"""
     md = MarkdownIt('js-default')
     original_fence = md.renderer.rules['fence']
@@ -114,12 +123,14 @@ def render_markdown(content, name):
                 children.insert(0, checkbox)
     body = md.renderer.render(tokens, md.options, {})
     mermaid = MERMAID_BOOT if has_mermaid and MERMAID_JS.is_file() else ''
+    directory_link = (f'<a class="markdown-directory-link" href="{directory}">返回上层目录</a>'
+                      if directory else '<span>Markdown</span>')
     return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>' + html.escape(name) + '</title>'
             '<link rel="stylesheet" href="/_preview/theme.css">'
             '<body class="markdown-page"><main class="readme"><div class="readme-bar">'
-            '<span>▤ &nbsp; ' + html.escape(name) + '</span><span>Markdown</span></div>'
+            '<span>▤ &nbsp; ' + html.escape(name) + '</span>' + directory_link + '</div>'
             '<article class="markdown-body">' + body + '</article></main>'
             + mermaid + '</body></html>')
 
@@ -136,12 +147,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_local_file(self, source):
         if source.suffix.lower() in ('.md', '.markdown') and 'raw' not in parse_qs(urlsplit(self.path).query):
-            try:
-                content = source.read_text(encoding='utf-8-sig')
-            except (OSError, UnicodeError):
-                self.send_error(400, 'Cannot read Markdown as UTF-8')
-                return
-            self.send_content(render_markdown(content, source.name).encode(), 'text/html; charset=utf-8')
+            self.send_markdown(source)
             return
         try:
             data = source.read_bytes()
@@ -150,8 +156,22 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self.send_content(data, self.guess_type(str(source)))
 
+    def send_markdown(self, source):
+        try:
+            content = source.read_text(encoding='utf-8-sig')
+        except (OSError, UnicodeError):
+            self.send_error(400, 'Cannot read Markdown as UTF-8')
+            return
+        page = self.document_page(source, Path(self.directory).resolve())
+        directory = page_link('/_browse', page=page)
+        body = render_markdown(content, source.name, directory=directory)
+        self.send_content(body.encode(), 'text/html; charset=utf-8')
+
     def content_page(self, source, root):
         return '/' + quote(source.relative_to(root).as_posix())
+
+    def document_page(self, source, root):
+        return self.content_page(source, root) if source.is_relative_to(root) else filesystem_page(source)
 
     def locate_page(self, raw):
         raw = (raw or '').strip()
@@ -208,6 +228,104 @@ class Handler(SimpleHTTPRequestHandler):
             return None
         return None
 
+    def preview_document(self, query):
+        source = self.resolve_document(query.get('page', [''])[0])
+        if source is None:
+            self.send_error(404, 'Document not found')
+            return
+        page = self.document_page(source, Path(self.directory).resolve())
+        params = {'page': page}
+        if 'from' in query:
+            params['from'] = query['from'][0]
+        template = Template((APP / 'preview.html').read_text(encoding='utf-8'))
+        body = template.substitute(title=html.escape(source.name), source=html.escape(page),
+                                   directory=page_link('/_browse', **params))
+        self.send_content(body.encode(), 'text/html; charset=utf-8')
+
+    def browse_directory(self, query):
+        source = self.resolve_document(query.get('page', [''])[0]) if 'page' in query else None
+        if 'page' in query and source is None:
+            self.send_error(404, 'Document not found')
+            return
+        root = Path(self.directory).resolve()
+        scope = root
+        anchor = source
+        try:
+            if source is not None and not source.is_relative_to(root):
+                previous = self.resolve_document(query.get('from', [''])[0])
+                if previous is not None and not previous.is_relative_to(root):
+                    previous_scope = project_directory(previous)
+                    if source.is_relative_to(previous_scope):
+                        anchor = previous
+                scope = project_directory(anchor)
+            if 'dir' in query:
+                folder = (scope / query['dir'][0]).resolve()
+            else:
+                folder = source.parent if source is not None else root
+            if not folder.is_relative_to(scope):
+                self.send_error(404, 'Directory not found')
+                return
+            children = list(folder.iterdir())
+        except (FileNotFoundError, NotADirectoryError, ValueError, RuntimeError):
+            self.send_error(404, 'Directory not found')
+            return
+        except OSError:
+            self.send_error(403, 'Cannot read directory')
+            return
+
+        anchor_page = self.document_page(anchor, root) if anchor is not None else None
+
+        def folder_link(path):
+            params = {'dir': path.relative_to(scope).as_posix()}
+            if anchor_page is not None and scope != root:
+                params['page'] = anchor_page
+            return page_link('/_browse', **params)
+
+        rows = []
+        for child in children:
+            if child.name.startswith('.'):
+                continue
+            try:
+                target = child.resolve()
+                if not target.is_relative_to(scope):
+                    continue
+                is_directory = target.is_dir()
+                if not is_directory and (child.suffix.lower() not in DOC_SUFFIXES or not is_doc_file(target)):
+                    continue
+            except (OSError, ValueError, RuntimeError):
+                continue
+            name = html.escape(child.name)
+            actions = ''
+            if is_directory:
+                label = '目录'
+                link = folder_link(target)
+            else:
+                label = 'MD' if target.suffix.lower() in ('.md', '.markdown') else 'HTML'
+                params = {'page': self.document_page(target, root)}
+                if anchor_page is not None and scope != root:
+                    params['from'] = anchor_page
+                link = page_link('/_preview/view', **params)
+                review_link = page_link('/_review', **params)
+                actions = f'<a class="raw" href="{review_link}" aria-label="审查 {name}">审查</a>'
+            row = (f'<li class="file-row"><span class="file-icon" aria-hidden="true">{label}</span>'
+                   f'<div class="file-info"><a href="{link}">{name}</a></div>{actions}</li>')
+            rows.append((not is_directory, child.name.casefold(), child.name, row))
+
+        listing = ''.join(row for _, _, _, row in sorted(rows))
+        parent = f'<a href="{folder_link(folder.parent)}">返回上层目录</a>' if folder != scope else ''
+        display_path = folder.as_posix()
+        if folder.is_relative_to(root):
+            display_path = '/' if folder == root else '/' + folder.relative_to(root).as_posix()
+        body = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<title>目录浏览 · Review Desk</title><link rel="stylesheet" href="/_preview/theme.css">'
+                f'<nav class="topbar"><a href="/">所有方案</a>{parent}</nav>'
+                f'<main class="library directory"><h1>目录浏览</h1><p class="muted">{html.escape(display_path)}</p>'
+                f'<ul class="directory-list">{listing}</ul>'
+                + ('' if rows else '<p class="empty">此目录没有子目录、Markdown 或 HTML 文件。</p>')
+                + '</main></html>')
+        self.send_content(body.encode(), 'text/html; charset=utf-8')
+
     def review_request(self, action=None):
         page = action.get('page', '') if action else parse_qs(urlsplit(self.path).query).get('page', [''])[0]
         source = self.resolve_document(page)
@@ -221,7 +339,7 @@ class Handler(SimpleHTTPRequestHandler):
             except OSError:
                 result['catalogWarning'] = '方案列表登记未完成；批注仍可使用，请稍后重新打开重试'
             root = Path(self.directory).resolve()
-            result['page'] = self.content_page(source, root) if source.is_relative_to(root) else filesystem_page(source)
+            result['page'] = self.document_page(source, root)
             self.send_content(json.dumps(result, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
         except Conflict as exc:
             self.send_content(json.dumps({'error': str(exc)}, ensure_ascii=False).encode(), 'application/json; charset=utf-8', status=409)
@@ -285,9 +403,14 @@ class Handler(SimpleHTTPRequestHandler):
         self.review_request(action)
 
     def do_GET(self):
-        path = urlsplit(self.path).path
+        request = urlsplit(self.path)
+        path = request.path
         if path == '/_preview/review':
             self.review_request()
+        elif path == '/_preview/view':
+            self.preview_document(parse_qs(request.query))
+        elif path == '/_browse':
+            self.browse_directory(parse_qs(request.query))
         elif path == '/_preview/files':
             try:
                 files = self.document_files()
@@ -348,12 +471,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not source.is_relative_to(root) or not source.is_file():
                 self.send_error(404, 'Markdown file not found')
                 return
-            try:
-                content = source.read_text(encoding='utf-8-sig')
-            except (OSError, UnicodeError):
-                self.send_error(400, 'Cannot read Markdown as UTF-8')
-                return
-            self.send_content(render_markdown(content, source.name).encode(), 'text/html; charset=utf-8')
+            self.send_markdown(source)
         elif path in ('/', '/_review'):
             name = 'index.html' if path == '/' else 'review.html'
             self.send_content((APP / name).read_bytes(), 'text/html; charset=utf-8')

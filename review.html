@@ -2,7 +2,9 @@
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>方案批注 · Review Desk</title>
 <link rel="stylesheet" href="/_preview/theme.css"><body class="review-page">
 <header class="review-header"><h1>方案批注 <small>Review Desk</small></h1><a href="/">所有方案</a><select id="pages" aria-label="选择方案"></select><span class="muted">划词 → 批注 → 汇总复制</span></header>
-<main class="workspace"><section class="preview"><div class="muted" id="source"></div><iframe id="page" title="待审查方案"></iframe></section><aside><div class="eyebrow">Shared review notes</div>
+<main class="workspace"><section class="preview">
+<div class="preview-toolbar"><span class="muted" id="source"></span><a id="parentDirectory" target="_blank" rel="noopener" hidden>返回上层目录</a><a id="openPreview" target="_blank" rel="noopener" hidden>打开预览 <span aria-hidden="true">↗</span></a></div>
+<iframe id="page" title="待审查方案"></iframe></section><aside><div class="eyebrow">Shared review notes</div>
 <div id="catalogStatus" role="status"></div><div id="round" class="tag"></div><div id="update" hidden><p id="updateText"></p><button id="next" class="primary">开始新一轮</button></div><h2>添加审查意见</h2><div class="muted">在左侧选中文字，点击「批注」。已批注文字以浅黄色标出，也可以直接写整体意见。</div><div id="quote"></div><textarea id="note" rows="4" placeholder="希望如何修改？为什么？" aria-label="批注内容"></textarea><div class="actions"><button class="primary" id="save">保存批注</button><button id="cancel">取消选段</button></div>
 <h2>批注清单 <span id="count">0</span></h2><div id="status" role="status"></div><div id="list"></div><button class="primary" id="export">汇总并复制</button>
 <details id="history"><summary>历史批注 <span id="historyCount">0</span></summary><div id="archives"></div></details><details><summary>打开其他预览页</summary><p class="muted">项目方案保留在项目目录。粘贴本站 URL、文件名，或服务所在机器上的 HTML / Markdown 绝对路径即可审查，无需复制。</p><div class="urlrow"><input id="url" aria-label="方案地址" placeholder="方案 URL / 文件名 / 本机绝对路径"><button id="open">打开</button></div></details><small>批注共享保存在服务端；其他客户端打开、切回窗口或每 15 秒检查时更新。旧本地批注首次打开时自动导入，原数据保留。</small>
@@ -10,7 +12,8 @@
 <dialog id="dialog"><h2>提交给 Codex 的审查意见</h2><p class="muted">复制后粘贴到终端对话。包含方案来源、引用原文和修改意见。</p><textarea id="output" aria-label="汇总文本"></textarea><div id="copyStatus" role="status"></div><div class="actions"><button class="primary" id="copy">再次复制</button><button id="close">关闭</button></div></dialog>
 <script>
 
-const $=id=>document.getElementById(id), frame=$('page');
+const $=id=>document.getElementById(id), frame=$('page'), previewLink=$('openPreview');
+const directoryLink=$('parentDirectory');
 let current='', title='', entries=[], pending=null, editing=null, selected=null, frameDoc=null;
 function status(s){$('status').textContent=s}
 let review={round:1,revision:null,archives:[]}, latest=null, displayedRevision=null, generation=0, checking=false;
@@ -110,6 +113,13 @@ function displayDocument(snapshot){
   const doc=new DOMParser().parseFromString(snapshot.html,'text/html');
   const base=document.createElement('base');base.href=current;doc.head.prepend(base);
   frame.srcdoc='<!doctype html>'+doc.documentElement.outerHTML;
+  const navigation=new URLSearchParams({page:new URL(current).pathname});
+  const browseFrom=new URL(location.href).searchParams.get('from');
+  if(browseFrom)navigation.set('from',browseFrom);
+  previewLink.href='/_preview/view?'+navigation;
+  directoryLink.href='/_browse?'+navigation;
+  previewLink.hidden=false;
+  directoryLink.hidden=false;
 }
 async function checkDocument(show=false,force=false){
   const token=generation,url=current;
@@ -173,12 +183,15 @@ async function openFromInput(value){const v=value.trim();if(!v){status('请输�
 async function openPage(value){
   let u;try{u=new URL(value,location.origin+'/');if(u.pathname==='/_review')u=new URL(u.searchParams.get('page')||'',location.origin+'/');if(u.origin!==location.origin||!/\.(html?|md|markdown)$/i.test(u.pathname))throw Error()}catch(e){status('请输入本站方案地址、文件名，或本机 HTML / Markdown 绝对路径');return}
   if(busy||$('note').value.trim()){status('请先保存当前批注，或点击取消选段放弃草稿');$('pages').value=current;return}
+  previewLink.hidden=true;directoryLink.hidden=true;
   u.hash='';current=u.href;const token=++generation;ready=false;sharedVersion=-1;latest=null;displayedRevision=null;title='';frameDoc=null;$('catalogStatus').textContent='';reset();selected=null;$('pick').style.display='none';review={round:1,revision:null,archives:[]};entries=[];render();status('正在读取共享批注…');
   try{
     if(!await loadShared(token))return;
     u=new URL(current);
     if(!Array.from($('pages').options).some(o=>o.value===current))$('pages').add(new Option(pageLabel(u),current));$('pages').value=current;$('source').textContent=pageLabel(u);
-    const address=new URL(location.href);address.searchParams.set('page',u.pathname+u.search);history.replaceState(null,'',address);
+    const address=new URL(location.href), previousPage=address.searchParams.get('page');
+    if(previousPage&&previousPage!==u.pathname+u.search&&!address.searchParams.has('from'))address.searchParams.set('from',previousPage);
+    address.searchParams.set('page',u.pathname+u.search);history.replaceState(null,'',address);
     await checkDocument(true);
   }catch(e){if(token===generation)status(e.message||'共享批注加载失败；请检查连接后刷新')}
 }

@@ -9,3 +9,13 @@
 #round{margin-bottom:12px}#update{background:#fff3d6;border:1px solid #e5cea0;border-radius:10px;padding:14px;margin-bottom:20px}#update p{margin-bottom:10px;font-size:12px}#history{border-top:1px solid var(--line);padding-top:16px}.history-card{background:#f6f7f2}
 
 .availability{margin-bottom:16px}.availability span{font-variant-numeric:tabular-nums}#catalogStatus{color:#8a581e;font-size:12px}#catalogStatus:empty{display:none}
+.preview-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.preview-toolbar a { flex-shrink:0; font-size:12px; white-space:nowrap; }
+#source { flex:1; }
+.standalone-preview { height:100vh; height:100dvh; display:flex; flex-direction:column; }
+.standalone-preview nav { padding:10px 18px; background:var(--paper); border-bottom:1px solid var(--line); }
+.standalone-preview iframe { border:0; border-radius:0; }
+.markdown-directory-link { flex-shrink:0; white-space:nowrap; }
+.directory h1 { margin-bottom:8px; }
+.directory > p { overflow-wrap:anywhere; }
+.directory-list { margin:0; padding:0; list-style:none; }

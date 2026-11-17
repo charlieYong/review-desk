@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>$title · 文件预览</title>
+<link rel="stylesheet" href="/_preview/theme.css">
+<body class="standalone-preview">
+  <nav><a id="parentDirectory" href="$directory">返回上层目录</a></nav>
+  <iframe id="previewDocument" src="$source" title="文件正文"></iframe>
+  <script>
+    const frame = document.getElementById('previewDocument');
+    const parentDirectory = document.getElementById('parentDirectory');
+    frame.addEventListener('load', () => {
+      let file;
+      try {
+        file = new URL(frame.contentWindow.location.href);
+      } catch (error) {
+        return;
+      }
+      const extension = file.pathname.split('.').pop().toLowerCase();
+      if (file.origin !== location.origin || !['html', 'htm', 'md', 'markdown'].includes(extension)) return;
+      if (extension === 'md' || extension === 'markdown') {
+        frame.contentDocument.querySelector('.markdown-directory-link')?.remove();
+      }
+      const preview = new URL(location.href);
+      const previousPage = preview.searchParams.get('page');
+      if (file.pathname === previousPage) return;
+      const directory = new URL(parentDirectory.href);
+      if (previousPage && !preview.searchParams.has('from')) {
+        preview.searchParams.set('from', previousPage);
+        directory.searchParams.set('from', previousPage);
+      }
+      directory.searchParams.set('page', file.pathname);
+      parentDirectory.href = directory.href;
+      preview.searchParams.set('page', file.pathname);
+      history.replaceState(null, '', preview);
+    });
+  </script>
+</body>
+</html>

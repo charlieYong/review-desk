@@ -13,7 +13,7 @@ function render(){
     if(available)link.href='/_review?page='+encodeURIComponent(f.url);
     link.textContent=f.name.split('/').pop();meta.textContent=(f.name.includes('/')?f.name.slice(0,f.name.lastIndexOf('/'))+' · ':'')+f.kind;
     time.className='file-date';
-    if(available){const date=new Date(f.modified*1000);time.dateTime=date.toISOString();time.textContent=date.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});time.title='修改时间：'+date.toLocaleString('zh-CN');raw.href=f.url;raw.textContent='预览 ↗'}
+    if(available){const date=new Date(f.modified*1000);time.dateTime=date.toISOString();time.textContent=date.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});time.title='修改时间：'+date.toLocaleString('zh-CN');raw.href='/_preview/view?page='+encodeURIComponent(f.url);raw.textContent='预览 ↗'}
     else{meta.textContent+=' · 文件不存在或暂时不可访问，恢复后可继续审查';raw.textContent='文件不可用'}
     raw.className='raw';info.append(link,meta);row.append(icon,info,time,raw);$('list').append(row);
   }
