@@ -1,34 +1,12 @@
 # Review Desk
 
-一个轻量的 HTML / Markdown 方案审查工作台。选中文字，连续添加批注，最后将原文和修改意见汇总复制到 Codex CLI 或其他对话工具。
+[简体中文](README.zh-CN.md) · [Installation guide](INSTALL.md)
 
-无需修改方案文件，也不需要前端构建。项目方案保留在项目文档目录，填写服务所在机器上的绝对路径即可审查；临时独立方案可放入内容目录。
+Review HTML and Markdown documents in your browser. Select text, leave shared notes, and copy the feedback into Codex CLI or another AI tool. Review project files in place, or put standalone documents in a dedicated content directory.
 
-## 介绍视频
+## Quick start
 
-约 8 秒看完经典用法：打开方案列表 → 进入审查页 → 划词批注 → 汇总并复制到对话工具。
-
-<video src="https://github.com/user-attachments/assets/a6bcc9d2-abb8-4b7d-98c5-294a5dfc9407" controls playsinline width="100%"></video>
-
-仓库内备份：[intro-demo.mp4](docs/assets/intro-demo.mp4) · [intro-demo.gif](docs/assets/intro-demo.gif)
-
-## 功能
-
-- 自动发现内容目录及子目录中的 HTML / Markdown；外部方案成功定位或打开审查页后也进入首页，按文件修改时间倒序展示。
-- 按文件名及目录搜索、按 HTML / Markdown 类型筛选，每 15 秒刷新列表；失效方案单独查看。
-- Markdown 使用接近 GitHub README 的排版，支持表格、代码块、Mermaid 图（如 flowchart）、任务列表、图片和章节锚点。
-- 划词批注、整体意见、多条编辑与删除。
-- 按真实文件路径和审查轮次在服务端共享保存批注，刷新和服务重启后恢复。
-- 检测文档内容更新，手动开始新一轮并归档旧批注；历史意见可标记已解决或继续跟进。
-- 汇总包含方案来源、引用原文和修改意见，支持一键复制和手动复制回退。
-- 可分享审查链接，适配桌面与手机。
-- 首页和审查页均可填写本机绝对路径，打开尚未放入内容目录的 HTML / Markdown 方案。
-
-## 快速开始
-
-使用团队 ZIP 安装包时，解压后让 Agent 按 [INSTALL.md](INSTALL.md) 完成安装和验收；包内附带离线 Python 依赖。
-
-需要 Python 3.10 或更新版本。
+Install from source with Python 3.10 or later.
 
 ```sh
 git clone https://github.com/charlieYong/review-desk.git
@@ -38,93 +16,83 @@ python3 -m venv .venv
 .venv/bin/python server.py --directory ./examples --bind 127.0.0.1 --port 8088
 ```
 
-打开 <http://127.0.0.1:8088/>，点击示例文件名进入批注页。Windows 使用 `.venv\Scripts\python.exe` 替换 `.venv/bin/python`。
+Open <http://127.0.0.1:8088/> and choose the [Markdown example](examples/README.md) or the [HTML example](examples/welcome.html). Choose a file name to review it or the preview action to read it separately. The application currently displays its controls in Simplified Chinese. [Watch the basic review workflow (MP4)](docs/assets/intro-demo.mp4) · [Animated demo (GIF)](docs/assets/intro-demo.gif)
 
-使用自己的内容目录：
+Run the same start command with `--directory` set to your own existing content directory to serve your documents. Supported extensions are `.html`, `.htm`, `.md`, and `.markdown`. Save Markdown as UTF-8 and keep relative resources alongside the source. See the [installation guide](INSTALL.md) for Windows, offline team bundles, and deployment verification.
 
-```sh
-mkdir -p ~/preview-docs
-.venv/bin/python server.py --directory ~/preview-docs --bind 127.0.0.1 --port 8088
-```
+## Review workflow
 
-把 `.html`、`.htm`、`.md`、`.markdown` 文件及其相对资源放入目录。Markdown 使用 UTF-8 编码。局域网访问时使用 `--bind 0.0.0.0`，然后通过该机器的 IP 访问。
+1. Open a file from the home page or enter its absolute path **on the server machine**. The review page also accepts a same-site URL, file name, or absolute path. Successfully locating an external document or opening its review adds it to the shared library, even before anyone leaves a note.
+2. Select text and add an annotation, or leave a note on the whole document. Saved quotes are highlighted when they can be matched to the displayed revision. You can edit or delete your notes from the list.
+3. Open the standalone preview in a new tab to see the latest content while keeping your review draft. The preview and review pages can open the containing directory. From the directory, select a file to preview it or use its review action. Navigation reaches the configured content root, an external file's Git worktree root, or a standalone external file's containing directory.
+4. Copy the review summary into your AI conversation. It includes the source, review round, content revision, and current notes with their quotes. If clipboard access fails, copy the selected text manually.
+5. When the source changes in place, return to the review page or wait for the update check. Save or discard any draft, then start a new round to load the latest revision and archive the previous notes. In the history, mark an item resolved or follow up by bringing it into the current draft. Select a new quote if the old one cannot be uniquely located.
 
-## 让 Agent 自动发布方案
+Document changes are detected from the content, so changing only the modification time leaves the revision intact. An update prompt leaves the displayed document in place. A browser reload shows the latest document and prompts you to start a new round if the shared round is still on an older revision. History stores notes and quotes. Keep older source revisions in your project's version control.
 
-建议在安装时，将下面的指令配置到所用 Agent 的用户级全局 `AGENTS.md` / `CLAUDE.md`，这样在其他项目生成方案时也能给出可批注链接。本项目 README 提供配置模板；仅在本仓库添加指令，无法覆盖其他项目的会话。
+### Library and shared reviews
 
-先将 `<内容目录绝对路径>` 和 `<访问根地址>` 替换为实际部署值，例如 `/home/<用户名>/html-preview/` 和 `http://<服务器IP>:8088`。其中 `<用户名>` 和 `<服务器IP>` 均为占位符，使用时需替换；地址应从用户浏览器可达。
+The home page scans the content directory recursively and merges it with registered paths. Search by file name or directory and filter by format. Available files are sorted by modification time. Missing or unreadable files are listed separately, and their registration and notes remain available when the source returns. The list refreshes on demand, when you return to the window, and every 15 seconds while visible.
 
-项目方案默认写在项目约定文档目录，无约定时使用项目内 `docs/`，用服务所在机器上的绝对路径就地审查，无需发布副本。临时独立方案才发布到内容目录。
+A review URL has the form `/_review?page=...`, where `page` is an encoded site path. Paths within the content directory use ordinary URLs such as `/plan.md`. External documents use `/_fs` URLs. Both resolve to the real source path, so aliases through symlinks share notes. Identical names in different directories represent different documents. Renaming or moving a source creates a new document identity. The original HTML URL is served as authored. A direct Markdown URL displays rendered Markdown, with `?raw=1` available for the source. Relative links and images resolve from the document's location.
+
+Registration stores the path independently of the review round. The library recovers paths from older shared state, including documents opened without notes. If an older external document was only located and never registered or reviewed, locate it again. A registration failure makes the locate request fail explicitly. Opening an existing review can still load and save notes and reports the registration failure separately. An unreadable catalog raises a list error. Individual unreadable legacy records are skipped and logged.
+
+Visitors to the same service share reviews. Updates are read on open, reload, window focus or visibility changes, and every 15 seconds while visible. Independent additions can be saved concurrently. A stale edit, delete, history change, or save to an archived round returns HTTP 409 and preserves the draft. Starting a round archives all notes already saved in the previous round. If another visitor starts a round while you have a draft, the review page keeps the draft for you to check.
+
+### Upgrading from browser-local notes
+
+On each browser that holds legacy notes, open the document using the same site origin you used before upgrading. Review Desk imports the browser's legacy notes for the same real source file while preserving the original local data. Each snapshot is imported once. Same-round, same-revision notes merge with shared state. Notes from another revision go into history, and the first import preserves recorded rounds and resolution states. Older notes without a recorded revision are associated with the content at import time. Refresh any review tab left open during the upgrade before saving again.
+
+## Use and deployment boundaries
+
+Run Review Desk on loopback for personal use or behind access controls on a trusted network. The server has no accounts or authentication. Always pass `--bind 127.0.0.1` for local-only use. The CLI defaults to `0.0.0.0` when `--bind` is omitted. Restrict network access before enabling a LAN deployment. The directory browser limits what it lists. Direct file serving can reach files outside the configured content directory that the server process can read. Reachable clients can also read and change shared notes. Run the service with only the filesystem permissions it needs. Serve trusted HTML, which runs as authored.
+
+The state directory defaults to `data/` under the application directory. Use `--state-directory` to override it. Preserve the whole directory across backups and upgrades. `catalog.json` holds real absolute paths and the other JSON files hold reviews. Use one server process per state directory.
+
+Markdown supports tables, code blocks, tasks, images, section anchors, and Mermaid diagrams. Embedded HTML is displayed as text. Code blocks retain formatting without syntax highlighting. Mermaid runs locally, scales tall diagrams to fit the viewport, and leaves the source visible if rendering fails. Text selection in a Mermaid diagram depends on the browser's SVG support. Annotations cannot select text inside images, canvas elements, or cross-origin frames.
+
+## Give your agent review links
+
+Copy the following template into the agent's user-level instructions, such as `AGENTS.md` or `CLAUDE.md`, to use it across projects. Replace `<review-origin>` with an address reachable from your browser and `<content-directory>` with the absolute directory used for standalone documents.
 
 ```markdown
-## 方案远程审查
+## Share documents for review
 
-- 生成供用户审查、预览或批注的 HTML / Markdown 方案、报告或原型时，无需再次确认，在最终回复提供完整、可点击的远程批注链接（`<访问根地址>/_review?page=...`）。
-- 项目方案默认写在项目约定文档目录（无约定时用项目内 `docs/`），直接审查同一源文件，无需复制。可请求 `<访问根地址>/_preview/locate?path=<URL 编码后的绝对路径>` 获取 `page`，审查链接为 `<访问根地址>/_review?page=` 加上 URL 编码后的 `page`。项目外路径以 `/_fs` 开头。POSIX 形如 `/_fs/home/<用户名>/proj/docs/plan.md`，Windows 形如 `/_fs/C:/proj/docs/plan.md`。
-- 临时独立方案发布到 `<内容目录绝对路径>`。新文件使用 `<topic>-YYYYMMDD-HHMMSS.html` 或 `.md` 的 ASCII 文件名。审查链接为 `<访问根地址>/_review?page=` 加上 URL 编码后的站内路径，例如 `%2Fcheckout-20260911-103000.html`。
-- HTML 优先使用单文件；有相对资源时与方案放在同一相对位置。按批注修改时覆盖原文件，沿用原审查地址，以保留审查轮次和历史。
-- 写好后请求审查链接，并请求对应原文。项目目录的原文地址是 `<访问根地址>` 加上 `/_fs` 绝对路径；内容目录的原文地址是 `<访问根地址>/<filename>`。两者均返回 HTTP 200 后交付；失败时说明具体原因。
-- 交付引用方案、报告、验收记录等供用户阅读的文档时，包括在简短交付摘要中引用已有文档，最终回复须使用 `[文档名称](完整远程批注 URL)`；用户只需预览原型时使用完整远程原文 URL。本地绝对路径、项目相对路径和 `file://` 链接不能替代远程链接；链接不可达时明确报告失败。
+- Save project documents in the project's documentation directory, using docs/ when no convention exists. Save standalone drafts under <content-directory>. Keep related resources beside the source.
+- Request <review-origin>/_preview/locate?path=<URL-encoded absolute source path> and read the returned page value. Use that value as returned, including its escaping.
+- Open the source at <review-origin> plus page. Build the review URL as <review-origin>/_review?page= plus the URL-encoded page value.
+- Verify that the source and review URL both return HTTP 200 and that the source is the intended document. Include the full clickable review URL when handing off the document. Report a failed check with its actual error.
+- Revise the same file in place and reuse its review URL so readers can keep the existing notes and review history.
 ```
 
-项目内文件 `C:/proj/docs/plan.md` 的审查链接为 `http://<服务器IP>:8088/_review?page=%2F_fs%2FC%3A%2Fproj%2Fdocs%2Fplan.md`。POSIX 把 `/_fs/home/<用户名>/proj/docs/plan.md` 按同样规则编码。内容目录中的 `checkout-20260911-103000.html` 审查链接为 `http://<服务器IP>:8088/_review?page=%2Fcheckout-20260911-103000.html`。两种文件都由现有服务直接读取，无需重启。HTTP 检查用于确认可达，首次安装的交互验收见 [INSTALL.md](INSTALL.md)。
+## Project structure
 
-## 审查流程
-
-1. 在首页点击文件名，进入左侧正文、右侧批注的工作台。也可以填写本机绝对路径，打开尚未放入内容目录的方案。审查页的「打开其他预览页」同样接受本站地址、文件名或本机绝对路径。外部方案在成功获取定位链接或读取审查状态后自动收录到首页，不需要先写批注。
-2. 选中原文，点击「＋ 批注」，填写意见并保存；也可直接写整体意见。
-3. 重复操作，完成后点击「汇总并复制」。
-4. 将文本粘贴到终端对话，交给 Agent 继续修改。汇总只包含本轮批注，并注明轮次和内容版本。
-5. Agent 覆盖同名文档后，切回窗口或等待自动检查，页面提示文档更新。点击「开始新一轮」加载新版，上一轮批注归档，当前清单和高亮清空。存在草稿时须先保存或取消。
-6. 展开「历史批注」核对旧意见，可标记「已解决」或「继续跟进」。继续跟进会将意见带入编辑区，保存后加入本轮；引用无法唯一定位时需要在新正文重新选段。
-
-点击正文上方的「打开预览」，可在新标签页直接查看文件的最新内容。审查页中的草稿会保留，打开预览无需开始新一轮或提交批注。
-
-文件预览和审查页上方的「返回上层目录」会打开当前文件所在的目录。目录页逐层显示可见的子目录、Markdown 和 HTML，可点击文件名预览，也可点击「审查」进入批注。从审查页打开目录会另开标签页。内容目录可向上浏览到服务配置的根目录。外部文件可浏览所属 Git 工作区，独立文件可浏览所在目录及其子目录。
-
-内容变化通过文件内容指纹判断，仅修改时间变化不会触发新轮次。发现更新时不会自动替换正在审查的正文；刷新页面会显示最新正文，同时提示开始新一轮，旧批注不再高亮。历史仅保存意见和引用，不保存完整旧文档。旧版浏览器批注首次使用时关联到当时内容，无法追溯此前对应的文件版本。不同文件名仍作为不同方案处理。
-
-审查地址使用 `/_review?page=...`，`page` 是经过 URL 编码的站内文件路径。内容目录中的方案形如 `/文件名.md`；按本机绝对路径打开时，`page` 以 `/_fs` 加上该绝对路径表示。同一服务的访问者共享批注。普通路径与 `/_fs` 入口均按解析后的真实文件绝对路径识别文档（包括符号链接），不同目录中的同名文件互不影响；查询参数不创建新文档。同一文件位于内容目录内时仍沿用内容目录地址。打开、刷新、切回可见窗口或可见页面每 15 秒检查时读取共享更新；没有即时推送。共享轮次变化时，有未保存草稿的客户端保留草稿并提示核对。
-
-首页合并内容目录扫描与服务端登记路径，按真实绝对路径去重；同名不同目录分别展示，内容目录内文件保留原有普通入口。登记只保存路径，不提前创建审查轮次。旧共享记录中的方案会自动回填，包括已打开但未写批注的方案；仅定位过、从未打开且没有共享记录的历史方案需要再次定位。首页默认显示有效方案，文件删除或暂时不可读取时移入「失效方案」，保留登记及批注；文件恢复后自动回到有效列表。失效方案按路径排序，需恢复源文件后继续审查。登记写入失败时，定位接口明确报错；直接打开已有审查链接仍可读取和保存批注，并提示列表登记未完成，稍后重试。单条旧共享记录损坏时跳过并写服务日志，不阻断其他方案；方案目录本身无法读取或回填失败时，列表明确报错，不覆盖损坏数据。
-
-保存按单条操作提交：并发新增互不覆盖；编辑、删除、历史解决状态会比较原意见，过期操作返回 HTTP 409，页面保留草稿并提示核对。开始新一轮时在服务端一次性归档所有已提交意见，过期轮次的保存会被明确拒绝。文件内容更新仍由用户手动开始新一轮；历史不保存完整旧正文。
-
-升级后，打开文档时自动发现当前浏览器 localStorage 中属于同一真实文件的旧批注（包括普通路径与绝对路径入口），将旧数组、轮次和历史导入共享状态，原 localStorage 保留不修改。相同快照只导入一次，删除后不会因刷新重新出现。已有共享状态时，同轮同版本的旧意见合并，异版意见进入历史；不同内容的本地意见分别保留。首次迁移时旧轮次和已解决状态保留；没有旧版本记录的数组关联到当前内容，无法追溯先前版本。每台有旧意见的电脑都需用原浏览器、原站点地址打开相应文档一次，才能读出其本地数据；服务端无法主动读取其他电脑或其他 origin 的 localStorage。导入失败会提示，原数据仍在。未升级的已打开页面应刷新后再继续批注。
-
-原始 HTML URL 保持原样。Markdown 原地址显示排版后的正文，文件名右侧也可点击「返回上层目录」，加 `?raw=1` 可读取源文。相对图片和链接继续按原文件位置解析。
-
-## 使用边界
-
-这是面向个人或可信局域网的文件预览工具，没有账号系统。内容目录中的文件会被提供给访问者，HTML 按原样运行；请只放入准备预览的可信文件，不要把整个代码仓库或含凭证的目录作为内容目录。外部方案成功定位或打开审查页后，其路径会进入共享列表，该文件及其相对资源也会对能访问此服务的人可见。目录浏览还会列出浏览范围内的子目录、Markdown 和 HTML；请为准备分享的文件选择合适的存放目录。
-
-批注存储在服务端安装目录的 `data/` 中，可用 `--state-directory` 指定；其中 `catalog.json` 保存已登记方案的真实绝对路径，其他按文档路径摘要命名的 JSON 保存共享批注。备份、迁移服务时一并保留整个目录，升级程序时保留这些数据。使用单个服务进程管理状态目录，支持该进程的并发请求；不支持多个服务进程共用该目录。重命名或移动源文件会形成新的文档身份。图片和 Canvas 内的文字、跨域 iframe 不支持划词。Markdown 内嵌 HTML 按文本展示；代码块保留格式，不提供语法高亮。语言标记为 mermaid 的代码块会缩放到笔记本一屏内完整可见；语法错误时保留源文；图内节点文字能否划词取决于浏览器对 SVG 的选择。复制结果受浏览器权限影响，失败时可手动复制。
-
-## 项目结构
-
-| 文件 | 用途 |
+| File | Responsibility |
 | --- | --- |
-| `server.py` | 文件列表、目录浏览、Markdown 渲染、批注 API 和静态资源服务 |
-| `review_store.py` | 共享意见、轮次、旧数据导入、方案登记及持久化 |
-| `index.html` | 有效及失效方案目录、路径搜索和类型筛选 |
-| `review.html` | 划词批注与汇总复制 |
-| `preview.html` | 文件预览和上层目录入口 |
-| `theme.css` | 工作台与 Markdown 正文样式 |
-| `vendor/mermaid.min.js` | 本地 Mermaid 运行时，用于渲染流程图等图 |
-| `examples/` | 不含业务数据的体验示例 |
-| `tests/browser.cjs`、`tests/shared.cjs`、`tests/library.cjs` | 使用独立临时目录的浏览器、双上下文共享及方案目录验收 |
+| `server.py` | File discovery, directory navigation, Markdown rendering, and HTTP endpoints |
+| `review_store.py` | Shared reviews, rounds, legacy imports, and the document catalog |
+| `index.html`, `review.html`, `preview.html` | Library, review workspace, and standalone preview |
+| `theme.css`, `vendor/` | Styles and the bundled Mermaid runtime |
+| `examples/` | Sample Markdown and HTML |
+| `tests/` | Browser, shared review, and document library regression suites |
 
-运行时依赖 [markdown-it-py](https://markdown-it-py.readthedocs.io/en/latest/using.html) 和仓库内的 Mermaid 脚本，不依赖外部 CDN。
+The Python server serves HTML, CSS, and JavaScript directly. Runtime dependencies are [markdown-it-py](https://markdown-it-py.readthedocs.io/en/latest/using.html) and the bundled Mermaid script. Node.js is used for browser testing.
 
-## 浏览器验证
+## Browser tests
 
-需要 Node.js 和 Chromium。测试自动启动临时服务，创建并清理独立夹具，不使用日常预览目录。
+With the Python dependencies installed, run the full Playwright suite.
 
 ```sh
-npm install
+npm ci
 npx playwright install chromium
 PYTHON=.venv/bin/python npm test
 ```
 
-方案目录测试覆盖定位即收录且不提前创建轮次、直接审查登记、历史回填与损坏记录隔离、真实路径去重、同名文件隔离、中文空格路径、路径搜索、失效与权限恢复、重启持久化，以及登记故障时批注仍可使用。测试还覆盖两个独立浏览器上下文的共享、并发新增与编辑冲突、轮询、重启持久化、旧数据导入和文档身份隔离；这不等于真实两台电脑的网络验收。原有测试覆盖 Markdown 渲染、Mermaid 流程图、相对图片、划词批注、复制结果提示、刷新恢复、排序、筛选、新文件发现、按本机绝对路径打开站外方案、原始 HTML 和手机布局。`PYTHON` 可指定 Python 可执行文件；`CHROMIUM_EXECUTABLE_PATH` 可指定已有 Chromium。
+On Windows PowerShell, set `$env:PYTHON = ".\.venv\Scripts\python.exe"` before `npm test`. Set `CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium binary.
+
+- `tests/browser.cjs` covers Markdown and Mermaid rendering, selection and highlights, copying, legacy notes, review rounds, standalone previews, directory navigation, relative resources, and mobile layout.
+- `tests/shared.cjs` uses independent browser contexts to cover concurrent changes, conflicts, polling, migration, and persistence across server restarts.
+- `tests/library.cjs` covers registration, historical backfill, Unicode paths, deduplication, missing-file recovery, and storage errors.
+
+The suite uses temporary services and fixtures. For checks against an actual deployment, see the [installation guide](INSTALL.md#4-verify-the-running-service).

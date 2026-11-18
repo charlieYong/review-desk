@@ -1,33 +1,31 @@
-# 欢迎来到 Review Desk
+# Welcome to Review Desk
 
-把方案放在书桌上，把想法留在原文旁。
+## Try an annotation
 
-## 试一试批注
+Select this paragraph and add a note about something you would change. Add more notes as you read, then copy the summary into your AI conversation.
 
-选中这段文字，点击「＋ 批注」，写下你希望如何修改。你可以连续添加多条意见，再一次汇总复制到对话工具。
+## Sample review checklist
 
-## 一个简单的审查清单
+- [x] The goal is clear
+- [x] The scope is defined
+- [ ] Add verification results
 
-- [x] 方案目标清晰
-- [x] 修改范围明确
-- [ ] 补充实际验收结果
-
-| 阶段 | 需要回答的问题 |
+| Stage | Question to ask |
 | --- | --- |
-| 阅读 | 方案解决了什么问题？ |
-| 批注 | 哪段内容需要调整，为什么？ |
-| 验收 | 如何确认修改符合预期？ |
+| Read | What problem does the plan solve? |
+| Review | Which passage needs a change? |
+| Verify | What proves the change worked? |
 
-> 好的反馈同时包含原文、问题和期望结果。
+> A useful note includes the original passage, the issue, and the expected result.
 
 ```python
-print("让每个想法，再清晰一点。")
+print("Ready for review")
 ```
 
 ```mermaid
 flowchart LR
-    A[阅读方案] --> B[留下批注]
-    B --> C[汇总回对话]
+    A[Read the plan] --> B[Leave notes]
+    B --> C[Copy the summary]
 ```
 
-也可以打开 [HTML 示例](welcome.html)，体验不同格式之间的切换。
+Open the [HTML example](welcome.html) to try another document format.

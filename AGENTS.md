@@ -1,24 +1,24 @@
-# 项目协作规则
+# Working on Review Desk
 
-## 按任务阅读
+## Read by task
 
-- 修改功能前，阅读 [README.md](README.md) 的「审查流程」「使用边界」「项目结构」，以其中的用户行为约定为依据；行为变更时同步更新相应说明。
-- 安装、启动或交付服务时，按 [INSTALL.md](INSTALL.md) 执行环境检查和实际运行验收。
-- 配置 Agent 自动发布或按批注更新已发布方案时，阅读 [README.md](README.md) 的「让 Agent 自动发布方案」；全局配置的写入范围按 [INSTALL.md](INSTALL.md) 第 5 节执行。
+- Feature changes: read [Review workflow](README.md#review-workflow), [Use and deployment boundaries](README.md#use-and-deployment-boundaries), and [Project structure](README.md#project-structure). Update the documented behavior when it changes.
+- Installation, startup, or deployment: follow [INSTALL.md](INSTALL.md) for environment checks and verify the running service.
+- Agent review links or revisions to a shared document: use [Give your agent review links](README.md#give-your-agent-review-links). For user-level configuration, follow [Configure agent review links](INSTALL.md#5-configure-agent-review-links).
 
-## 开发约定
+## Development
 
-- 保持 Python 服务直接提供 HTML/CSS/JavaScript、无需前端构建和外部 CDN 的运行方式；Node.js 依赖用于开发验收。
-- 修改批注存储、方案地址或审查轮次时，保留已有浏览器批注及历史的可读取性，并验证旧数据迁移；详细轮次和版本语义以 README 的「审查流程」为准。
+- Keep Python serving HTML, CSS, and JavaScript directly. Keep runtime assets local and use Node.js for browser testing.
+- Changes to note storage, document URLs, or review rounds must preserve existing notes and history and verify migration from browser-local data. Follow the round and revision behavior described in [Review workflow](README.md#review-workflow).
 
-## 验证
+## Verification
 
-- 修改服务或前端行为后，按 [README.md](README.md) 的「浏览器验证」运行现有测试；新增或修复行为时检查 [tests/browser.cjs](tests/browser.cjs) 是否覆盖目标场景，缺失时补充相应验收。
-- 测试沿用独立临时内容目录和临时服务，不使用日常预览目录作为夹具；示例使用不含业务数据的内容。
-- 服务交付还需按 INSTALL 的「验收实际运行结果」检查最终运行环境；交互检查未完成时明确列出，HTTP 200 仅证明请求可达。
+- Run the full [browser test suite](README.md#browser-tests) after changing server or frontend behavior. Check existing coverage in `tests/browser.cjs` and add a case when the changed behavior is missing.
+- Use isolated temporary content and state directories and synthetic fixtures.
+- For deployments, use [Verify the running service](INSTALL.md#4-verify-the-running-service). Report any interaction checks still pending. HTTP 200 confirms reachability.
 
-## 文档脱敏
+## Public documentation
 
-- 编写或修改项目文档时，将真实机器用户名和 IP 地址替换为 `<用户名>`、`<服务器IP>` 等占位符；路径、命令和 URL 示例中的同类信息同步替换，并说明使用时需填入实际值。
-- 保留具有通用用途的地址，如回环地址 `127.0.0.1`、`::1` 和监听地址 `0.0.0.0`、`::`，以保持示例的技术含义。
-- 完成前检查文档差异，确认没有引入或遗漏真实机器用户名和 IP 地址。
+- Write the primary documentation in English and update the corresponding Chinese guide for user-facing changes.
+- Use placeholders such as `<username>` and `<server-ip>` in sample paths, commands, and URLs. Keep addresses with a generic technical purpose such as `127.0.0.1`, `::1`, `0.0.0.0`, and `::`.
+- Review the final documentation diff for real machine names, usernames, and network addresses.
