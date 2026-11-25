@@ -111,9 +111,12 @@ function versionUI(){
 function displayDocument(snapshot){
   frameDoc=null;displayedRevision=snapshot.revision;
   const doc=new DOMParser().parseFromString(snapshot.html,'text/html');
+  const source=new URL(current);
+  const tabName=doc.title.trim()||decodeURIComponent(source.pathname.split('/').pop());
+  document.title=`${tabName} · Review Desk`;
   const base=document.createElement('base');base.href=current;doc.head.prepend(base);
   frame.srcdoc='<!doctype html>'+doc.documentElement.outerHTML;
-  const navigation=new URLSearchParams({page:new URL(current).pathname});
+  const navigation=new URLSearchParams({page:source.pathname});
   const browseFrom=new URL(location.href).searchParams.get('from');
   if(browseFrom)navigation.set('from',browseFrom);
   previewLink.href='/_preview/view?'+navigation;

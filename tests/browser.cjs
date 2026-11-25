@@ -30,6 +30,12 @@ fs.writeFileSync(dir+'/new.markdown','# 新文件\n\n自动收录');await p.getB
 // 重复文字只标记实际选中的一处，并验证跨内联节点选段刷新后恢复。
 fs.writeFileSync(dir+'/repeat.html','<!doctype html><title>重复文字</title><p>相同文字</p><p>前缀 <strong>相同</strong>文字 后缀</p>');
 await p.goto(base+'/_review?page=/repeat.html');await f.locator('strong').waitFor();
+const markdownReview=await browser.newPage();
+await markdownReview.goto(base+'/_review?'+new URLSearchParams({page:'/方案.md'}));
+await markdownReview.frameLocator('#page').locator('h1').waitFor();
+assert.equal(await p.title(),'重复文字 · Review Desk');
+assert.equal(await markdownReview.title(),'方案.md · Review Desk');
+await markdownReview.close();
 await f.locator('p').nth(1).evaluate(el=>{const r=document.createRange();r.setStart(el.querySelector('strong').firstChild,0);r.setEnd(el.lastChild,2);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});
 await p.locator('#pick').click();await p.locator('#note').fill('第二处文字');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
 for(let i=0;i<2;i++){
@@ -112,6 +118,7 @@ await p.locator('#pick').click();await p.locator('#note').fill('站外方案可�
 assert.equal(await p.locator('#count').textContent(),'1');
 await p.getByText('打开其他预览页').click();await p.locator('#url').fill(outside+'/other.html');await p.locator('#open').click();
 await f.getByRole('heading',{name:'另一份站外'}).waitFor();assert.equal(await p.locator('#count').textContent(),'0');
+assert.equal(await p.title(),'站外 HTML · Review Desk');
 const [htmlPreview]=await Promise.all([p.waitForEvent('popup'),previewLink.click()]);
 await previewFrame(htmlPreview).getByRole('heading',{name:'另一份站外'}).waitFor();
 assert.equal(new URL(htmlPreview.url()).searchParams.get('page'),new URL('other.html',base+located.page).pathname);
@@ -144,6 +151,7 @@ await p.locator('#url').fill('/no/such/file.md');await p.locator('#open').click(
 await p.waitForFunction(()=>/找不到该方案|请确认/.test(document.querySelector('#status').textContent));
 await p.locator('#url').fill('old.html');await p.locator('#open').click();
 await f.getByRole('heading',{name:'旧 HTML'}).waitFor();assert.equal(await p.locator('#count').textContent(),'1');
+assert.equal(await p.title(),'old.html · Review Desk');
 fs.writeFileSync(dir+'/tall.md','# 高流程图\n\n```mermaid\nflowchart TD\n'+[...Array(12)].map((_,i)=>`    N${i}[步骤${i}说明文字] --> N${i+1}[步骤${i+1}说明文字]`).join('\n')+'\n```\n');
 await p.setViewportSize({width:1440,height:1000});
 await p.goto(base+'/_review?page=/tall.md');

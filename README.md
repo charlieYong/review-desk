@@ -28,6 +28,8 @@ Run the same start command with `--directory` set to your own existing content d
 4. Copy the review summary into your AI conversation. It includes the source, review round, content revision, and current notes with their quotes. If clipboard access fails, copy the selected text manually.
 5. When the source changes in place, return to the review page or wait for the update check. Save or discard any draft, then start a new round to load the latest revision and archive the previous notes. In the history, mark an item resolved or follow up by bringing it into the current draft. Select a new quote if the old one cannot be uniquely located.
 
+The review tab shows the document title for HTML files with a title and the file name for Markdown and untitled HTML files.
+
 Document changes are detected from the content, so changing only the modification time leaves the revision intact. An update prompt leaves the displayed document in place. A browser reload shows the latest document and prompts you to start a new round if the shared round is still on an older revision. History stores notes and quotes. Keep older source revisions in your project's version control.
 
 ### Library and shared reviews
