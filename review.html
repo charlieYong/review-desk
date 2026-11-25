@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>方案批注 · Review Desk</title>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>审批</title>
 <link rel="stylesheet" href="/_preview/theme.css"><body class="review-page">
 <header class="review-header"><h1>方案批注 <small>Review Desk</small></h1><a href="/">所有方案</a><select id="pages" aria-label="选择方案"></select><span class="muted">划词 → 批注 → 汇总复制</span></header>
 <main class="workspace"><section class="preview">
@@ -112,8 +112,11 @@ function displayDocument(snapshot){
   frameDoc=null;displayedRevision=snapshot.revision;
   const doc=new DOMParser().parseFromString(snapshot.html,'text/html');
   const source=new URL(current);
-  const tabName=doc.title.trim()||decodeURIComponent(source.pathname.split('/').pop());
-  document.title=`${tabName} · Review Desk`;
+  const heading=/\.(md|markdown)$/i.test(source.pathname)
+    ?doc.querySelector('.markdown-body > h1')?.textContent
+    :doc.title;
+  const tabName=heading?.trim()||decodeURIComponent(source.pathname.split('/').pop());
+  document.title=`审批 ${tabName}`;
   const base=document.createElement('base');base.href=current;doc.head.prepend(base);
   frame.srcdoc='<!doctype html>'+doc.documentElement.outerHTML;
   const navigation=new URLSearchParams({page:source.pathname});
