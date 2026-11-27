@@ -5,12 +5,17 @@ const {spawn}=require('node:child_process');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'review-desk-library-'));
 const content=path.join(temp,'content'),project=path.join(temp,'project'),state=path.join(temp,'state');
 for(const dir of [content,project,state])fs.mkdirSync(dir);
-const file=path.join(project,'中文 空格.md'),direct=path.join(project,'direct.html'),old=path.join(project,'old.md');
+fs.writeFileSync(path.join(project,'.git'),'gitdir: fixture');
+const file=path.join(project,'中文 空格.md'),direct=path.join(project,'direct.html'),old=path.join(project,'old.md'),listed=path.join(project,'listed.md');
 fs.writeFileSync(file,'# 外部方案\n\n初始版本');fs.writeFileSync(direct,'<h1>直接打开</h1><p>正文</p>');
 fs.writeFileSync(old,'# 历史方案');fs.writeFileSync(content+'/same.md','# 目录内方案');
+fs.writeFileSync(listed,'# 旧目录条目');
 const stateFile=source=>path.join(state,crypto.createHash('sha256').update(source).digest('hex')+'.json');
-const oldState={documentId:old,version:0,imports:[],state:{round:1,revision:'old-revision',entries:[],archives:[]}};
+const oldState={documentId:old,version:2,imports:[],state:{round:2,revision:crypto.createHash('sha256').update(fs.readFileSync(old)).digest('hex'),
+  entries:[{id:'current',quote:'',note:'升级前当前批注'}],archives:[{round:1,revision:'old-revision',archivedAt:123,entries:[{id:'archived',quote:'',note:'升级前历史批注',resolved:true}]}]}};
 fs.writeFileSync(stateFile(old),JSON.stringify(oldState));
+const catalog=path.join(state,'catalog.json');
+fs.writeFileSync(catalog,JSON.stringify([listed]));
 const broken=path.join(state,'a'.repeat(64)+'.json');fs.writeFileSync(broken,'broken JSON');
 let server,browser,base,logs='';
 async function start(port=0){
@@ -24,17 +29,30 @@ function pass(name){console.log('PASS: '+name)}
   const p=await browser.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));
   const get=async url=>p.request.get(base+url);
   const files=async()=>{const r=await get('/_preview/files');assert.equal(r.status(),200);return r.json()};
-  const locate=async source=>{const r=await get('/_preview/locate?path='+encodeURIComponent(source));assert.equal(r.status(),200);return (await r.json()).page};
+  const location=async source=>{const r=await get('/_preview/locate?path='+encodeURIComponent(source));assert.equal(r.status(),200);return r.json()};
+  const locate=async source=>(await location(source)).page;
   const review=async page=>{const r=await get('/_preview/review?page='+encodeURIComponent(page));assert.equal(r.status(),200);return r.json()};
-  const find=async source=>(await files()).find(f=>f.name===source);
+  const displayName=source=>path.relative(temp,source).split(path.sep).join('/');
+  const find=async source=>(await files()).find(f=>f.name===displayName(source));
   const refresh=async()=>{const response=p.waitForResponse(r=>r.url().endsWith('/_preview/files'));await p.getByRole('button',{name:/刷新列表/}).click();await response;await p.waitForFunction(()=>!document.querySelector('#status').textContent.includes('失败'))};
 
-  let list=await files();assert(list.some(f=>f.name===old&&f.available));assert.deepEqual(JSON.parse(fs.readFileSync(stateFile(old))),oldState);
+  let list=await files();assert(list.some(f=>f.name===displayName(old)&&f.available));assert.deepEqual(JSON.parse(fs.readFileSync(stateFile(old))),oldState);
+  assert((await find(listed)).available);assert(!fs.existsSync(stateFile(listed)));
+  const oldLink=(await find(old)).review;
+  await p.goto(base+'/_review?page='+encodeURIComponent('/_fs'+old));
+  await p.frameLocator('#page').getByRole('heading',{name:'历史方案'}).waitFor();
+  assert.equal(new URL(p.url()).pathname,oldLink);
+  assert.equal(await p.locator('#round').textContent(),'第 2 轮审查');
+  assert.equal(await p.locator('#list .card p').textContent(),'升级前当前批注');
+  await p.locator('#history summary').click();
+  assert.equal(await p.locator('.history-card p').textContent(),'升级前历史批注');
+  assert.equal(await p.locator('.history-card .tag').textContent(),'已解决');
+  assert.equal(fs.readFileSync(stateFile(old),'utf8'),JSON.stringify(oldState));
   assert(logs.includes('跳过无法读取的旧批注记录'));assert(fs.readFileSync(broken,'utf8')==='broken JSON');
   pass('历史无批注记录回填；坏记录报告且不阻断、不改写旧批注');
 
   const page=await locate(file);assert((await find(file)).available);assert(!fs.existsSync(stateFile(file)));
-  const catalog=path.join(state,'catalog.json'),before=fs.statSync(catalog).mtimeMs;
+  const before=fs.statSync(catalog).mtimeMs;
   await locate(file);await files();assert.equal(fs.statSync(catalog).mtimeMs,before);
   fs.writeFileSync(file,'# 定位后修改\n\n审查应从这一版开始。');
   const reviewed=await review(page);assert.equal(reviewed.state.revision,crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
@@ -49,11 +67,13 @@ function pass(name){console.log('PASS: '+name)}
   assert.equal(await locate(content+'/same.md'),'/same.md');assert.equal(await locate(content+'/alias.md'),'/same.md');
   fs.writeFileSync(project+'/same.md','# 外部同名方案');await locate(project+'/same.md');
   list=await files();assert.equal(list.filter(f=>f.url===page).length,1);assert.equal(list.filter(f=>f.url==='/same.md').length,1);assert(!list.some(f=>f.name==='alias.md'));
-  assert(list.some(f=>f.name===project+'/same.md'));assert(list.some(f=>f.name==='same.md'));
-  await p.goto(base+'/');await p.locator('#search').fill(project);await p.getByRole('link',{name:'中文 空格.md',exact:true}).waitFor();
+  assert(list.some(f=>f.name==='project/same.md'));assert(list.some(f=>f.name==='same.md'));
+  assert(!JSON.stringify(list).includes(temp));assert(!JSON.stringify(reviewed).includes(temp));assert(!('documentId' in reviewed));
+  await p.goto(base+'/');await p.locator('#search').fill('project');await p.getByRole('link',{name:'中文 空格.md',exact:true}).waitFor();
   await p.getByRole('button',{name:'HTML',exact:true}).click();assert.equal(await p.locator('.file-row').count(),1);assert.equal(await p.locator('.file-info a').textContent(),'direct.html');
   await p.getByRole('button',{name:'全部',exact:true}).click();await p.getByRole('link',{name:'中文 空格.md',exact:true}).click();await p.frameLocator('#page').getByRole('heading',{name:'定位后修改'}).waitFor();
-  assert.equal(new URL(p.url()).searchParams.get('page'),page);
+  assert.equal(new URL(p.url()).pathname,(await find(file)).review);
+  assert.equal(await p.locator('#source').textContent(),'project/中文 空格.md');
   pass('真实路径去重、同名异目录隔离、中文空格路径、按目录搜索及类型筛选');
 
   const beforeState=fs.readFileSync(stateFile(file),'utf8');fs.unlinkSync(file);
@@ -65,22 +85,56 @@ function pass(name){console.log('PASS: '+name)}
   await p.getByRole('button',{name:/有效方案/}).click();await p.getByRole('link',{name:'中文 空格.md',exact:true}).waitFor();
   assert.equal(fs.readFileSync(stateFile(file),'utf8'),beforeState);
   fs.chmodSync(file,0);assert.equal((await find(file)).available,false);fs.chmodSync(file,0o600);assert.equal((await find(file)).available,true);
-  fs.utimesSync(file,new Date('2030-01-01'),new Date('2030-01-01'));list=await files();assert.equal(list[0].name,file);
+  fs.utimesSync(file,new Date('2030-01-01'),new Date('2030-01-01'));list=await files();assert.equal(list[0].name,displayName(file));
   await p.setViewportSize({width:390,height:844});await refresh();assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   pass('失效方案单独显示、删除及权限恢复保留批注、真实时间排序、手机布局');
 
+  const restoredLink=(await find(file)).review;
   const port=new URL(base).port;await stop();await start(port);
   assert((await find(file)).available);assert((await find(direct)).available);
+  assert.equal((await location(file)).review,restoredLink);assert.equal((await location(file)).page,page);
+  assert.equal((await get(oldLink)).status(),200);
   // 旧记录在首次回填后出现仍可补入。
   const later=project+'/later.md';fs.writeFileSync(later,'# 晚到记录');fs.writeFileSync(stateFile(later),JSON.stringify({...oldState,documentId:later}));
   assert((await find(later)).available);
   pass('服务重启后列表持久化、旧记录可持续回填');
 
+  const [product,engineering]=['product','engineering'].map(team=>path.join(project,team,'PRODUCT.md'));
+  for(const entry of [product,engineering]){
+    fs.mkdirSync(path.dirname(entry));fs.writeFileSync(entry,'# 同名方案\n\n正文');
+  }
+  const originalName=(await location(product)).review;
+  const engineeringLink=(await location(engineering)).review,productLink=(await location(product)).review;
+  assert.match(decodeURI(productLink),/^\/_review\/同名方案-product\/[\w-]{16}$/);
+  assert.match(decodeURI(engineeringLink),/^\/_review\/同名方案-engineering\/[\w-]{16}$/);
+  assert.notEqual(productLink.split('/').at(-1),engineeringLink.split('/').at(-1));
+  await p.goto(base+originalName);await p.frameLocator('#page').getByRole('heading',{name:'同名方案'}).waitFor();
+  assert.equal(new URL(p.url()).pathname,productLink);
+  assert.equal(await p.locator('#pages option:checked').textContent(),'PRODUCT.md · product');
+  const sibling=path.join(path.dirname(product),'roadmap.md');fs.writeFileSync(sibling,'# 同名方案');
+  assert.match(decodeURI((await location(sibling)).review),/^\/_review\/同名方案-roadmap\/[\w-]{16}$/);
+  const long=path.join(project,'long.html');
+  fs.writeFileSync(long,'<title>长 标题 &amp; 空格 ? # '+('的'.repeat(80))+'</title><h1>正文</h1>');
+  const longLink=(await location(long)).review, label=longLink.split('/')[2];
+  assert(label.length<=96);assert.match(decodeURIComponent(label),/^长-标题-空格-/);
+  assert.equal((await get(longLink)).status(),200);
+  const pathTitle=path.join(project,'safe.md');fs.writeFileSync(pathTitle,'# '+pathTitle+'\n');
+  assert.match((await location(pathTitle)).review,/^\/_review\/safe\/[\w-]{16}$/);
+  pass('同标题同文件名按目录区分；旧标题可用；中文、保留字符、长度和路径标题回退');
+
   // 注入真实文件系统写入故障，验证错误语义与共享批注独立可用。
+  fs.mkdirSync(path.join(state,'catalog.tmp'));
+  fs.writeFileSync(file,'# 暂时无法登记的新标题');
+  const readOnlyMapping=await review(restoredLink);
+  assert.match(readOnlyMapping.catalogWarning,/登记未完成/);
+  assert.equal(readOnlyMapping.review,restoredLink);assert.equal(readOnlyMapping.page,page);
+  fs.writeFileSync(file,'# 文件恢复');
+  fs.rmdirSync(path.join(state,'catalog.tmp'));
   fs.renameSync(catalog,catalog+'.saved');fs.mkdirSync(path.join(state,'catalog.tmp'));
   let response=await get('/_preview/locate?path='+encodeURIComponent(file));assert.equal(response.status(),500);assert.match((await response.json()).error,/登记失败/);
   await p.goto(base+'/');await p.locator('#search').fill(file);await p.getByRole('button',{name:'打开批注'}).click();await p.waitForFunction(()=>document.querySelector('#localStatus').textContent.includes('登记失败'));
-  await p.goto(base+'/_review?page='+encodeURIComponent(page));await p.frameLocator('#page').getByRole('heading',{name:'文件恢复'}).waitFor();await p.locator('#catalogStatus').getByText(/登记未完成/).waitFor();
+  const legacyFile='/_fs'+path.dirname(file)+'/'+encodeURIComponent(path.basename(file));
+  await p.goto(base+'/_review?page='+encodeURIComponent(legacyFile));await p.frameLocator('#page').getByRole('heading',{name:'文件恢复'}).waitFor();await p.locator('#catalogStatus').getByText(/登记未完成/).waitFor();
   await p.locator('#next').click();await p.waitForFunction(()=>document.querySelector('#round').textContent==='第 2 轮审查');
   await p.locator('#note').fill('登记故障仍能保存批注');await p.locator('#save').click();await p.waitForFunction(()=>document.querySelector('#note').value==='');assert.equal(await p.locator('#count').textContent(),'1');
   assert.match(await p.locator('#catalogStatus').textContent(),/登记未完成/);
@@ -90,6 +144,7 @@ function pass(name){console.log('PASS: '+name)}
   pass('目录写入失败如实返回、首页提示、直接链接仍能打开及保存、恢复后清除警告');
 
   fs.writeFileSync(catalog,'invalid catalog');response=await get('/_preview/files');assert.equal(response.status(),500);assert.match((await response.json()).error,/目录读写失败/);assert.equal(fs.readFileSync(catalog,'utf8'),'invalid catalog');
-  assert.match((await review(page)).catalogWarning,/登记未完成/);assert.equal(fs.readFileSync(catalog,'utf8'),'invalid catalog');
+  assert.equal((await get(restoredLink)).status(),500);
+  assert.match((await review(legacyFile)).catalogWarning,/登记未完成/);assert.equal(fs.readFileSync(catalog,'utf8'),'invalid catalog');
   assert.deepEqual(errors,[]);pass('损坏目录明确失败且不覆盖原文件；无浏览器 JS 错误');
 }finally{if(browser)await browser.close();await stop();fs.rmSync(temp,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});

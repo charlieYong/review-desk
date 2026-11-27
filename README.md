@@ -36,7 +36,9 @@ Document changes are detected from the content, so changing only the modificatio
 
 The home page scans the content directory recursively and merges it with registered paths. Search by file name or directory and filter by format. Available files are sorted by modification time. Missing or unreadable files are listed separately, and their registration and notes remain available when the source returns. The list refreshes on demand, when you return to the window, and every 15 seconds while visible.
 
-A review URL has the form `/_review?page=...`, where `page` is an encoded site path. Paths within the content directory use ordinary URLs such as `/plan.md`. External documents use `/_fs` URLs. Both resolve to the real source path, so aliases through symlinks share notes. Identical names in different directories represent different documents. Renaming or moving a source creates a new document identity. The original HTML URL is served as authored. A direct Markdown URL displays rendered Markdown, with `?raw=1` available for the source. Relative links and images resolve from the document's location.
+External review links use `/_review/<short-title>/<document-id>`. The name comes from the Markdown heading, HTML title, or file name. The document ID stays stable across edits and restarts. Old links, including absolute-path bookmarks and earlier titles, open the same review. The review toolbar and library show project-relative locations or standalone file names. External directory links use `/_browse/<project-label>/<scope-id>/<relative-directory>` and navigate up to the worktree root or the standalone directory.
+
+Files within the content directory use source URLs such as `/plan.md` and review URLs such as `/_review?page=%2Fplan.md`. External sources use scoped URLs such as `/_d/<scope-id>/docs/plan.md`. Relative links and images resolve within that scope. HTML is served as authored. A direct Markdown URL displays rendered Markdown, with `?raw=1` available for the source. All review entries resolve to the real source path, so symlink aliases share notes, and identical file names in separate locations have separate reviews. Renaming or moving a source creates a new document identity.
 
 Registration stores the path independently of the review round. The library recovers paths from older shared state, including documents opened without notes. If an older external document was only located and never registered or reviewed, locate it again. A registration failure makes the locate request fail explicitly. Opening an existing review can still load and save notes and reports the registration failure separately. An unreadable catalog raises a list error. Individual unreadable legacy records are skipped and logged.
 
@@ -50,7 +52,7 @@ On each browser that holds legacy notes, open the document using the same site o
 
 Run Review Desk on loopback for personal use or behind access controls on a trusted network. The server has no accounts or authentication. Always pass `--bind 127.0.0.1` for local-only use. The CLI defaults to `0.0.0.0` when `--bind` is omitted. Restrict network access before enabling a LAN deployment. The directory browser limits what it lists. Direct file serving can reach files outside the configured content directory that the server process can read. Reachable clients can also read and change shared notes. Run the service with only the filesystem permissions it needs. Serve trusted HTML, which runs as authored.
 
-The state directory defaults to `data/` under the application directory. Use `--state-directory` to override it. Preserve the whole directory across backups and upgrades. `catalog.json` holds real absolute paths and the other JSON files hold reviews. Use one server process per state directory.
+The state directory defaults to `data/` under the application directory. Use `--state-directory` to override it. Preserve the whole directory across backups and upgrades. `catalog.json` maps public document and scope IDs to real absolute paths. The other JSON files hold reviews. Use one server process per state directory.
 
 Markdown supports tables, code blocks, tasks, images, section anchors, and Mermaid diagrams. Embedded HTML is displayed as text. Code blocks retain formatting without syntax highlighting. Mermaid runs locally, scales tall diagrams to fit the viewport, and leaves the source visible if rendering fails. Text selection in a Mermaid diagram depends on the browser's SVG support. Annotations cannot select text inside images, canvas elements, or cross-origin frames.
 
@@ -62,10 +64,10 @@ Copy the following template into the agent's user-level instructions, such as `A
 ## Share documents for review
 
 - Save project documents in the project's documentation directory, using docs/ when no convention exists. Save standalone drafts under <content-directory>. Keep related resources beside the source.
-- Request <review-origin>/_preview/locate?path=<URL-encoded absolute source path> and read the returned page value. Use that value as returned, including its escaping.
-- Open the source at <review-origin> plus page. Build the review URL as <review-origin>/_review?page= plus the URL-encoded page value.
+- Request <review-origin>/_preview/locate?path=<URL-encoded absolute source path> and read the returned page and review values. Use both values as returned, including their escaping.
+- Open the source at <review-origin> plus page and the review at <review-origin> plus review. If the server returns only page, use <review-origin>/_review?page= plus the URL-encoded page value.
 - Verify that the source and review URL both return HTTP 200 and that the source is the intended document. Include the full clickable review URL when handing off the document. Report a failed check with its actual error.
-- Revise the same file in place and reuse its review URL so readers can keep the existing notes and review history.
+- Revise the same file in place so readers keep their notes and review history. Use the current review URL from locate when sharing again.
 ```
 
 ## Project structure

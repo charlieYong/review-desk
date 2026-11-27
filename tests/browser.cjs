@@ -95,16 +95,23 @@ fs.writeFileSync(outsideMd,'# 站外方案\n\n站外原文用于批注。\n\n![�
 fs.writeFileSync(outside+'/other.html','<!doctype html><meta charset="utf-8"><title>站外 HTML</title><h1>另一份站外</h1><p>第二份正文。</p>');
 fs.writeFileSync(outside+'/notes.txt','not a document');
 const located=await(await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(outsideMd))).json();
-assert.equal(located.page,'/_fs'+outsideMd);
+assert.match(located.page,/^\/_d\/[\w-]{16}\/outside\.md$/);
+assert.match(decodeURI(located.review),/^\/_review\/站外方案\/[\w-]{16}$/);
+const scopeId=located.page.split('/')[2], standaloneDirectory='/_browse/standalone/'+scopeId+'/';
+const legacyPage='/_fs'+outsideMd;
+assert.equal(await(await p.request.get(base+legacyPage+'?raw=1')).text(),fs.readFileSync(outsideMd,'utf8'));
 // 只生成定位链接、尚未打开审查页的外部方案也进入首页，且未创建审查状态。
 api=await(await p.request.get(base+'/_preview/files')).json();
 assert(api.some(file=>file.url===located.page&&file.available));
+assert(!JSON.stringify(api).includes(outside));
+assert(!JSON.stringify(api).includes('/_fs/'));
 const crypto=require('node:crypto');
 assert(!fs.existsSync(dir+'-state/'+crypto.createHash('sha256').update(outsideMd).digest('hex')+'.json'));
 await p.goto(base+located.page);
 assert(await p.getByRole('heading',{name:'站外方案'}).isVisible());
 assert(await p.locator('article img').evaluate(el=>el.complete&&el.naturalWidth===80));
 await parentDirectory(p).click();
+assert.equal(new URL(p.url()).pathname,standaloneDirectory);
 assert(await p.getByRole('link',{name:'other.html',exact:true}).isVisible());
 assert(!fs.existsSync(dir+'-state/'+crypto.createHash('sha256').update(outsideMd).digest('hex')+'.json'));
 assert.equal((await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(path.join(fs.realpathSync(dir),'old.html')))).status(),200);
@@ -116,11 +123,21 @@ await p.goto(base+'/');assert.match(await p.locator('#search').getAttribute('pla
 await p.locator('#search').fill(outsideMd);await p.getByRole('button',{name:'打开批注'}).click();
 await f.locator('h1').waitFor();assert.equal(await f.locator('h1').textContent(),'站外方案');
 assert(await f.locator('img').evaluate(el=>el.complete&&el.naturalWidth===80));
-assert.equal(await p.locator('#source').textContent(),outsideMd);
+assert.equal(new URL(p.url()).pathname,located.review);
+assert.equal(await p.locator('#source').textContent(),'outside.md');
+assert.equal(await p.locator('#pages option:checked').textContent(),'outside.md');
+assert.equal(new URL(await parentDirectory(p).getAttribute('href'),base).pathname,standaloneDirectory);
 assert.equal(new URL(await previewLink.getAttribute('href'),base).searchParams.get('page'),located.page);
 await f.locator('p').first().evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);getSelection().removeAllRanges();getSelection().addRange(r);document.dispatchEvent(new PointerEvent('pointerup'))});
 await p.locator('#pick').click();await p.locator('#note').fill('站外方案可批注');await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#save').disabled);
 assert.equal(await p.locator('#count').textContent(),'1');
+await p.locator('#export').click();
+const externalSummary=await p.locator('#output').inputValue();
+assert(externalSummary.includes(base+located.review));assert(!externalSummary.includes(outside));
+await p.locator('#close').click();
+await p.goto(base+'/_review?'+new URLSearchParams({page:legacyPage}));
+await f.getByRole('heading',{name:'站外方案'}).waitFor();
+assert.equal(new URL(p.url()).pathname,located.review);assert.equal(await p.locator('#count').textContent(),'1');
 await p.getByText('打开其他预览页').click();await p.locator('#url').fill(outside+'/other.html');await p.locator('#open').click();
 await f.getByRole('heading',{name:'另一份站外'}).waitFor();assert.equal(await p.locator('#count').textContent(),'0');
 assert.equal(await p.title(),'审批 站外 HTML');
@@ -129,15 +146,26 @@ await previewFrame(htmlPreview).getByRole('heading',{name:'另一份站外'}).wa
 assert.equal(new URL(htmlPreview.url()).searchParams.get('page'),new URL('other.html',base+located.page).pathname);
 await parentDirectory(htmlPreview).click();
 await htmlPreview.getByRole('heading',{name:'目录浏览'}).waitFor();
+assert.equal(new URL(htmlPreview.url()).pathname,standaloneDirectory);
 assert.deepEqual(await htmlPreview.locator('.file-info a').allTextContents(),['other.html','outside.md']);
 assert.equal(await parentDirectory(htmlPreview).count(),0);
 assert.equal((await p.request.get(base+'/_browse?'+new URLSearchParams({page:located.page,dir:'..'}))).status(),404);
 
 // 独立目录里的子文件保留打开来源，可返回上一级。
 fs.mkdirSync(path.join(outside,'子目录'));
-fs.writeFileSync(path.join(outside,'子目录','child.markdown'),'# 子目录文件');
+fs.writeFileSync(path.join(outside,'子目录','child.markdown'),'# 子目录文件\n\n![上层图片](../pic.svg)');
 await htmlPreview.reload();
 await htmlPreview.getByRole('link',{name:'子目录',exact:true}).click();
+const childDirectoryPath=standaloneDirectory+encodeURIComponent('子目录');
+assert.equal(new URL(htmlPreview.url()).pathname,childDirectoryPath);
+await htmlPreview.getByRole('link',{name:'审查 child.markdown'}).click();
+const childFrame=htmlPreview.frameLocator('#page');
+await childFrame.getByRole('heading',{name:'子目录文件'}).waitFor();
+assert.match(decodeURI(new URL(htmlPreview.url()).pathname),/^\/_review\/子目录文件\/[\w-]{16}$/);
+assert.equal(new URL(htmlPreview.url()).searchParams.get('scope'),scopeId);
+assert(await childFrame.locator('img').evaluate(el=>el.complete&&el.naturalWidth===80));
+assert.equal(await parentDirectory(htmlPreview).getAttribute('href'),childDirectoryPath);
+await htmlPreview.goto(base+childDirectoryPath);
 await htmlPreview.getByRole('link',{name:'child.markdown',exact:true}).click();
 await previewFrame(htmlPreview).getByRole('heading',{name:'子目录文件'}).waitFor();
 await parentDirectory(htmlPreview).click();
@@ -146,9 +174,19 @@ assert(await htmlPreview.getByRole('link',{name:'outside.md',exact:true}).isVisi
 
 // 外部 Git 工作区的直达文件可沿目录返回工作区根目录。
 fs.writeFileSync(path.join(outside,'.git'),'gitdir: fixture');
-const gitChild=located.page.slice(0,located.page.lastIndexOf('/')+1)+encodeURIComponent('子目录')+'/child.markdown';
+const gitChild='/_fs'+outside+'/'+encodeURIComponent('子目录')+'/child.markdown';
 await htmlPreview.goto(base+'/_browse?'+new URLSearchParams({page:gitChild}));
+const gitRoot='/_browse/'+path.basename(outside)+'/'+scopeId+'/';
+assert.equal(new URL(htmlPreview.url()).pathname,gitRoot+encodeURIComponent('子目录'));
+const oldDirectory='/_browse?'+new URLSearchParams({page:legacyPage,dir:'子目录'});
+const fromSibling='/_browse?'+new URLSearchParams({page:'/_fs'+outside+'/other.html',dir:'子目录'});
+for(const entry of [oldDirectory,fromSibling]){
+  await htmlPreview.goto(base+entry);
+  assert.equal(new URL(htmlPreview.url()).pathname,gitRoot+encodeURIComponent('子目录'));
+  assert(!(await htmlPreview.locator('.directory > .muted').textContent()).includes(outside));
+}
 await parentDirectory(htmlPreview).click();
+assert.equal(new URL(htmlPreview.url()).pathname,gitRoot);
 assert(await htmlPreview.getByRole('link',{name:'outside.md',exact:true}).isVisible());
 assert.equal(await parentDirectory(htmlPreview).count(),0);
 await htmlPreview.close();

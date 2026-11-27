@@ -25,13 +25,7 @@
       const preview = new URL(location.href);
       const previousPage = preview.searchParams.get('page');
       if (file.pathname === previousPage) return;
-      const directory = new URL(parentDirectory.href);
-      if (previousPage && !preview.searchParams.has('from')) {
-        preview.searchParams.set('from', previousPage);
-        directory.searchParams.set('from', previousPage);
-      }
-      directory.searchParams.set('page', file.pathname);
-      parentDirectory.href = directory.href;
+      parentDirectory.href = '/_browse?' + new URLSearchParams({page: file.pathname});
       preview.searchParams.set('page', file.pathname);
       history.replaceState(null, '', preview);
     });

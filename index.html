@@ -10,10 +10,10 @@ function render(){
   for(const f of shown){
     const available=f.available!==false,row=document.createElement('article'),icon=document.createElement('span'),info=document.createElement('div'),link=document.createElement(available?'a':'span'),meta=document.createElement('small'),time=document.createElement('time'),raw=document.createElement(available?'a':'span');
     row.className='file-row';icon.className='file-icon'+(f.kind==='Markdown'?' md':'');icon.textContent=f.kind==='Markdown'?'MD':'HTML';info.className='file-info';link.className='file-title';
-    if(available)link.href='/_review?page='+encodeURIComponent(f.url);
-    link.textContent=f.name.split('/').pop();meta.textContent=(f.name.includes('/')?f.name.slice(0,f.name.lastIndexOf('/'))+' · ':'')+f.kind;
+    if(available)link.href=f.review;
+    link.textContent=f.fileName;meta.textContent=(f.name.includes('/')?f.name.slice(0,f.name.lastIndexOf('/'))+' · ':'')+f.kind;
     time.className='file-date';
-    if(available){const date=new Date(f.modified*1000);time.dateTime=date.toISOString();time.textContent=date.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});time.title='修改时间：'+date.toLocaleString('zh-CN');raw.href='/_preview/view?page='+encodeURIComponent(f.url);raw.textContent='预览 ↗'}
+    if(available){const date=new Date(f.modified*1000);time.dateTime=date.toISOString();time.textContent=date.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});time.title='修改时间：'+date.toLocaleString('zh-CN');raw.href=f.preview;raw.textContent='预览 ↗'}
     else{meta.textContent+=' · 文件不存在或暂时不可访问，恢复后可继续审查';raw.textContent='文件不可用'}
     raw.className='raw';info.append(link,meta);row.append(icon,info,time,raw);$('list').append(row);
   }
@@ -21,7 +21,7 @@ function render(){
   if(!shown.length){const empty=document.createElement('p');empty.className='empty';empty.textContent=group.length?'没有匹配的方案，试试其他关键词。':availability==='missing'?'没有失效方案。':'还没有方案，将 HTML 或 Markdown 放入内容目录，或在上方填写本机绝对路径。';$('list').append(empty)}
 }
 async function refresh(){try{const r=await fetch('/_preview/files',{cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.error||'列表加载失败，请刷新重试。');files=data;files.sort((a,b)=>a.available===false&&b.available===false?a.name.localeCompare(b.name):b.modified-a.modified||a.name.localeCompare(b.name));render()}catch(e){$('status').textContent=e.message||'列表加载失败，请刷新重试。'}}
-async function openLocal(){const path=$('search').value.trim();if(!path){$('localStatus').textContent='请填写本机方案的绝对路径';return}$('localStatus').textContent='正在打开…';try{const r=await fetch('/_preview/locate?path='+encodeURIComponent(path),{cache:'no-store'});if(!r.ok){if(r.status===500)throw Error((await r.json()).error);throw Error('找不到该方案，请确认绝对路径指向本机 HTML 或 Markdown 文件')}const {page}=await r.json();location.href='/_review?page='+encodeURIComponent(page)}catch(e){$('localStatus').textContent=e.message||'打开失败，请稍后重试'}}
+async function openLocal(){const path=$('search').value.trim();if(!path){$('localStatus').textContent='请填写本机方案的绝对路径';return}$('localStatus').textContent='正在打开…';try{const r=await fetch('/_preview/locate?path='+encodeURIComponent(path),{cache:'no-store'});if(!r.ok){if(r.status===500)throw Error((await r.json()).error);throw Error('找不到该方案，请确认绝对路径指向本机 HTML 或 Markdown 文件')}const {review}=await r.json();location.href=review}catch(e){$('localStatus').textContent=e.message||'打开失败，请稍后重试'}}
 function looksLikeLocalPath(v){const s=v.trim();return /^(~|file:|[A-Za-z]:[\\/])/.test(s)||s.startsWith('/')&&s.split('/').filter(Boolean).length>=2}
 $('search').oninput=render;$('search').addEventListener('keydown',e=>{if(e.key==='Enter'&&looksLikeLocalPath($('search').value))openLocal()});$('refresh').onclick=refresh;$('openLocal').onclick=openLocal;
 for(const b of document.querySelectorAll('[data-kind]'))b.onclick=()=>{kind=b.dataset.kind;for(const item of document.querySelectorAll('[data-kind]'))item.setAttribute('aria-pressed',String(item===b));render()};

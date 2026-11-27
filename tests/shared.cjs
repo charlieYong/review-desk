@@ -43,13 +43,29 @@ await check('项目原地更新、版本提示、轮次及历史跨客户端保�
   const r=await open(a,'/_fs'+project+'/same.md'),s=await open(b,'/_fs'+project+'/same.md'),url=r.url();
   fs.writeFileSync(project+'/same.md','# 项目第二版\n\n![图片](pic.svg)\n\n原文段落。');await sync(r);
   await r.locator('#update').waitFor({state:'visible'});await r.locator('#next').click();await r.frameLocator('#page').getByRole('heading',{name:'项目第二版'}).waitFor();
-  await sync(s);assert.equal(r.url(),url);assert.equal(await s.locator('#round').textContent(),'第 2 轮审查');assert.equal(await s.locator('#historyCount').textContent(),'1');assert.equal(await s.locator('#count').textContent(),'0');
+  const id=new URL(url).pathname.split('/').at(-1);
+  assert.equal(decodeURI(new URL(r.url()).pathname),'/_review/项目第二版/'+id);
+  await sync(s);assert.equal(s.url(),r.url());assert.equal(await s.locator('#round').textContent(),'第 2 轮审查');assert.equal(await s.locator('#historyCount').textContent(),'1');assert.equal(await s.locator('#count').textContent(),'0');
+  for(const oldAddress of [url,base+'/_review/'+id]){
+    await s.goto(oldAddress);await s.frameLocator('#page').getByRole('heading',{name:'项目第二版'}).waitFor();
+    assert.equal(s.url(),r.url());assert.equal(await s.locator('#historyCount').textContent(),'1');
+  }
   await r.close();await s.close();
 });
 await check('本地旧批注自动导入、备份保留、删除后不重复导入',async()=>{
   const c=await browser.newContext();await c.addInitScript(({origin,abs})=>{if(!localStorage.getItem('seeded')){localStorage.setItem('review-desk:v1:'+origin+abs,JSON.stringify([{id:'legacy',quote:'',note:'本地遗留'}]));localStorage.setItem('seeded','1')}},{origin:base,abs:'/_fs'+content+'/same.md'});
   const r=await open(c,'/same.md');assert((await notes(r)).includes('本地遗留'));assert(await r.evaluate(()=>Object.keys(localStorage).some(k=>k.startsWith('review-desk:v1:'))));
   await r.locator('#list .card').filter({hasText:'本地遗留'}).getByRole('button',{name:'删除',exact:true}).click();await r.reload();await r.frameLocator('#page').locator('h1').waitFor();assert(!(await notes(r)).includes('本地遗留'));await c.close();
+});
+await check('带标题短链接可从旧绝对路径导入浏览器批注，已有历史保留',async()=>{
+  const c=await browser.newContext();
+  await c.addInitScript(({origin,abs})=>localStorage.setItem('review-desk:v1:'+origin+abs,JSON.stringify([{id:'external-legacy',quote:'',note:'外部文档本地批注'}])),{origin:base,abs:'/_fs'+project+'/same.md'});
+  const located=await(await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(project+'/same.md'))).json();
+  const r=await c.newPage();await r.goto(base+located.review);await r.frameLocator('#page').getByRole('heading',{name:'项目第二版'}).waitFor();
+  assert.equal(await r.locator('#historyCount').textContent(),'2');
+  assert.deepEqual((await r.locator('.history-card p').allTextContents()).sort(),['外部文档本地批注','项目内意见'].sort());
+  await r.reload();await r.frameLocator('#page').locator('h1').waitFor();
+  assert.equal(await r.locator('#historyCount').textContent(),'2');await c.close();
 });
 await check('自动轮询可见、保留另一端未保存草稿',async()=>{
   await p.locator('#note').fill('轮询期间草稿');await save(q,'等待轮询的意见');
@@ -78,7 +94,7 @@ await check('含空格中文文件、符号链接、查询参数统一真实文�
   const filename='中文 空格.md';fs.writeFileSync(content+'/'+filename,'# 编码方案');fs.symlinkSync(content+'/'+filename,content+'/alias.md');
   const get=async page=>(await(await p.request.get(base+'/_preview/review?page='+encodeURIComponent(page))).json());
   const normal=await get('/'+encodeURIComponent(filename)+'?raw=1'),absolute=await get('/_fs'+content+'/'+encodeURIComponent(filename)),alias=await get('/alias.md');
-  assert.equal(normal.documentId,absolute.documentId);assert.equal(normal.documentId,alias.documentId);
+  assert.equal(normal.review,absolute.review);assert.equal(normal.review,alias.review);
   assert.equal((await(await p.request.get(base+'/_preview/locate?path='+encodeURIComponent(content+'/'+filename))).json()).page,normal.page);
 });
 await check('旧对象格式保留轮次、版本、历史及已解决状态；异版导入归档',async()=>{

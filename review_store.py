@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -35,43 +36,74 @@ class ReviewStore:
     def read_catalog(self):
         filename = self.directory / 'catalog.json'
         if not filename.exists():
-            return set()
+            return {'documents': {}, 'scopes': {}}
         try:
-            paths = json.loads(filename.read_text(encoding='utf-8'))
-            if not isinstance(paths, list) or not all(isinstance(p, str) and Path(p).is_absolute() for p in paths):
+            catalog = json.loads(filename.read_text(encoding='utf-8'))
+            if isinstance(catalog, list):
+                catalog = {'documents': {path: {'id': None, 'slug': None} for path in catalog}, 'scopes': {}}
+            documents, scopes = catalog['documents'], catalog['scopes']
+            if not all(Path(path).is_absolute() for path in (*documents, *scopes)):
                 raise ValueError('无效的方案目录')
-            return set(paths)
-        except (ValueError, UnicodeError) as exc:
+            for item in documents.values():
+                if item['id'] is not None and not re.fullmatch(r'[\w-]{16}', item['id'], re.ASCII):
+                    raise ValueError('无效的方案 ID')
+                if item['slug'] is not None and not isinstance(item['slug'], str):
+                    raise ValueError('无效的方案名称')
+            if not all(re.fullmatch(r'[\w-]{16}', key, re.ASCII) for key in scopes.values()):
+                raise ValueError('无效的目录 ID')
+            return catalog
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise OSError('方案目录无法读取') from exc
 
-    def register(self, source):
-        """只登记真实路径，不提前固定审查轮次及内容版本。"""
-        document_id = str(source.resolve())
+    def catalog(self, sources=None, scopes=(), *, recover=False):
+        """登记公开入口，批注状态仍由真实路径定位。"""
         with self.lock:
-            paths = self.read_catalog()
-            if document_id not in paths:
-                paths.add(document_id)
-                self.write_json(self.directory / 'catalog.json', sorted(paths))
+            catalog = self.read_catalog()
+            if not sources and not scopes and not recover:
+                return catalog
+            documents, directories = catalog['documents'], catalog['scopes']
+            registered = dict.fromkeys(self.legacy_documents()) if recover else {}
+            registered.update(sources or {})
+            document_ids = {item['id'] for item in documents.values()}
+            scope_ids = set(directories.values())
+            changed = False
+            for path, slug in registered.items():
+                item = documents.setdefault(str(path), {'id': None, 'slug': None})
+                if item['id'] is None:
+                    item['id'] = self.new_id(document_ids)
+                    changed = True
+                if slug is not None and item['slug'] != slug:
+                    item['slug'] = slug
+                    changed = True
+            for scope in scopes:
+                if str(scope) not in directories:
+                    directories[str(scope)] = self.new_id(scope_ids)
+                    changed = True
+            if changed:
+                self.write_json(self.directory / 'catalog.json', catalog)
+            return catalog
 
-    def documents(self):
+    @staticmethod
+    def new_id(existing):
+        value = secrets.token_urlsafe(12)
+        while value in existing:
+            value = secrets.token_urlsafe(12)
+        existing.add(value)
+        return value
+
+    def legacy_documents(self):
         """旧共享状态持续作为回填来源；单条损坏不阻断其他方案。"""
-        with self.lock:
-            paths = self.read_catalog()
-            merged = set(paths)
-            for filename in self.directory.glob('*.json'):
-                if not re.fullmatch(r'[0-9a-f]{64}\.json', filename.name):
-                    continue
-                try:
-                    data = json.loads(filename.read_text(encoding='utf-8'))
-                    document_id = data['documentId']
-                    if not isinstance(document_id, str) or not Path(document_id).is_absolute():
-                        raise ValueError('无效的文档路径')
-                    merged.add(document_id)
-                except (OSError, ValueError, KeyError, TypeError) as exc:
-                    logging.warning('跳过无法读取的旧批注记录 %s: %s', filename.name, type(exc).__name__)
-            if merged != paths:
-                self.write_json(self.directory / 'catalog.json', sorted(merged))
-            return sorted(merged)
+        for filename in self.directory.glob('*.json'):
+            if not re.fullmatch(r'[0-9a-f]{64}\.json', filename.name):
+                continue
+            try:
+                data = json.loads(filename.read_text(encoding='utf-8'))
+                document_id = data['documentId']
+                if not isinstance(document_id, str) or not Path(document_id).is_absolute():
+                    raise ValueError('无效的文档路径')
+                yield document_id
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                logging.warning('跳过无法读取的旧批注记录 %s: %s', filename.name, type(exc).__name__)
 
     def transact(self, source, action=None):
         document_id = str(source.resolve())
@@ -96,7 +128,7 @@ class ReviewStore:
                     changed = True
             if changed:
                 self.write_json(filename, data)
-            return {k: copy.deepcopy(data[k]) for k in ('documentId', 'version', 'state')}
+            return {k: copy.deepcopy(data[k]) for k in ('version', 'state')}
 
     def apply(self, data, action, source):
         state = data['state']
